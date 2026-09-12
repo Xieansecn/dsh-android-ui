@@ -99,6 +99,12 @@ check('移动端 CSS：胶囊在卡片上方独立成排、发送键不折行', 
   assert.ok(row, '应能找到工具行规则')
   assert.ok(row[1].includes('flex-wrap: nowrap'), '底行不折行，发送键才固定停在右下角')
   assert.ok(row[1].includes('container-type: normal'), '行盒必须让出包含块（否则胶囊落回输入框上）')
+  // 模型胶囊的宽度上限吃浏览器半写上的 --dsh-modes-w（"顶到权限胶囊再省略"），
+  // 且必须有不用变量的兜底值，否则量尺寸的脚本来不及跑时两颗胶囊会重叠。
+  // 注意：._7KE1Ra_root 在合并规则里也出现，这里直接找带变量的那条。
+  const model = /\._7KE1Ra_root\s*\{([^}]*var\(--dsh-modes-w[^}]*)\}/.exec(css)
+  assert.ok(model, '应能找到吃 --dsh-modes-w 的模型胶囊规则')
+  assert.ok(model[1].includes('50%'), '模型胶囊宽度上限应带不依赖变量的兜底（一半宽度）')
 })
 
 check('viewport 内容含 viewport-fit=cover 与 interactive-widget', () => {
@@ -266,6 +272,7 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   const bundle = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
   const listeners = new Map()
   const observers = []
+  const resizeObservers = []
   const rafs = new Map()
   let rafId = 0
   const htmlElement = {
@@ -340,9 +347,37 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     }
     return node
   }
+  // 作曲栏桩：模型胶囊的宽度要按权限胶囊的实测宽度算（浏览器半会把它写成卡片的
+  // --dsh-modes-w 自定义属性），这里给出卡片/权限胶囊两个最小节点。
+  const styleStub = () => {
+    const props = new Map()
+    return {
+      props,
+      setProperty(k, v) {
+        props.set(k, v)
+      },
+      getPropertyValue(k) {
+        return props.get(k) ?? ''
+      },
+      removeProperty(k) {
+        props.delete(k)
+      },
+    }
+  }
+  const cardStub = makeNode('div')
+  cardStub.isConnected = true
+  cardStub.style = styleStub()
+  const modesStub = makeNode('div')
+  modesStub.isConnected = true
+  modesStub.width = 120
+  modesStub.getBoundingClientRect = () => ({ width: modesStub.width })
   const documentStub = {
     documentElement: htmlElement,
-    querySelector: () => null,
+    querySelector: (sel) => {
+      if (sel === '[data-composer-card]') return cardStub
+      if (sel === '.uV2eYG_modes') return modesStub
+      return null
+    },
     querySelectorAll: () => [],
     addEventListener(type, fn) {
       listeners.set(type, fn)
@@ -390,6 +425,25 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     dispatchEvent: () => true,
     Event: class Event {},
   }
+  class ResizeObserverStub {
+    constructor(cb) {
+      this.cb = cb
+      this.targets = []
+      resizeObservers.push(this)
+    }
+    observe(el) {
+      this.targets.push(el)
+    }
+    unobserve(el) {
+      const at = this.targets.indexOf(el)
+      if (at !== -1) this.targets.splice(at, 1)
+    }
+    disconnect() {
+      this.targets.length = 0
+      const at = resizeObservers.indexOf(this)
+      if (at !== -1) resizeObservers.splice(at, 1)
+    }
+  }
   class MutationObserverStub {
     observe() {
       observers.push(this)
@@ -411,6 +465,7 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     document: documentStub,
     navigator: { maxTouchPoints: 1 },
     MutationObserver: MutationObserverStub,
+    ResizeObserver: ResizeObserverStub,
     AbortController,
     Array,
     Object,
@@ -457,6 +512,14 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.ok(observers.length >= 1, 'load 后应安装 MutationObserver')
   assert.ok(listeners.size >= 3, 'load 后应安装 DOM/visualViewport 监听')
   assert.equal(documentStub.body.childNodes.length, 1, 'load 后应注入悬浮侧栏开关按钮')
+  // 模型胶囊宽度跟随权限胶囊：装上先量一次写进卡片变量，尺寸变化后再量（CSS 的
+  // max-width 用这个变量把模型标签顶到权限胶囊前 12px 再省略）。
+  assert.equal(resizeObservers.length, 1, '应挂一个 ResizeObserver 量权限胶囊宽度')
+  assert.ok(resizeObservers[0].targets.includes(modesStub), '应观察权限胶囊')
+  assert.equal(cardStub.style.getPropertyValue('--dsh-modes-w'), '120px', '应把权限胶囊实测宽度写进卡片变量')
+  modesStub.width = 150
+  resizeObservers[0].cb()
+  assert.equal(cardStub.style.getPropertyValue('--dsh-modes-w'), '150px', '权限胶囊变宽后应重写变量')
   // 捕获阶段的"点会话行收起抽屉"判定：行内控件（三点菜单）不能算点行本身，
   // 否则菜单刚弹就被插件收掉抽屉（真机复现过）。这里只看两种情况是否安排收起。
   let scheduled = 0
@@ -490,6 +553,8 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.equal(documentStub.body.childNodes.length, 0, '卸载应摘掉注入的悬浮按钮')
   assert.equal(htmlElement.style.height, '', '卸载应还原 html 高度')
   assert.equal(htmlElement.attrs.has('data-dsh-kb-open'), false, '卸载应清掉键盘标记')
+  assert.equal(resizeObservers.length, 0, '卸载应断掉 ResizeObserver')
+  assert.equal(cardStub.style.getPropertyValue('--dsh-modes-w'), '', '卸载应清掉卡片上的宽度变量')
 })
 
 console.log(`\n[dsh-android-ui] ${checks - failures}/${checks} 项通过`)

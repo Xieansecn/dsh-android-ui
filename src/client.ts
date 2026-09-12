@@ -34,6 +34,12 @@ const SIDEBAR_TOGGLE = '.hHd-Xa_toggle'
 /** 会话行 / 行内交互控件（同上）。会话行本身是 div[role=treeitem]，行内的按钮才是控件。 */
 const SESSION_ROW = '[class*="_sessionRow"]'
 const ROW_CONTROL = 'button, [role="button"], input, [class*="_rowActions"]'
+/** 作曲栏卡片（宿主稳定 data 契约）与权限胶囊：模型胶囊的宽度上限要按权限胶囊的
+ *  实测宽度算，CSS 表达不了"顶到邻居为止"。 */
+const COMPOSER_CARD = '[data-composer-card]'
+const COMPOSER_MODES = '.uV2eYG_modes'
+/** 权限胶囊实测宽度（px），写在卡片上，供 mobile-css.ts 的 ._7KE1Ra_root 用。 */
+const MODES_W_VAR = '--dsh-modes-w'
 /** 悬浮侧栏开关的属性名（样式在 mobile-css.ts 的 [data-dsh-nav-fab]）。 */
 const FAB_ATTR = 'data-dsh-nav-fab'
 const FAB_VISIBLE_ATTR = 'data-dsh-nav-fab-visible'
@@ -433,6 +439,51 @@ function installSidebarFab(): Disposer {
 }
 
 /** 全部效果的安装器（顺序无关，各自独立）。 */
+/** 10) 模型胶囊的宽度上限跟随权限胶囊：把权限胶囊的实测宽度写进卡片上的
+ *  --dsh-modes-w，样式表用它把模型胶囊放宽到"顶到权限胶囊前 12px 再省略"（见
+ *  mobile-css.ts 的 ._7KE1Ra_root）。ResizeObserver 只在权限胶囊自己尺寸变化时触发
+ *  （改权限、计划胶囊出现/消失、转屏、字体加载），不是 document 级突变监听；
+ *  宿主换掉节点时靠 isConnected 重挂。取不到权限胶囊就写 0（模型独占整行）。 */
+function installModelPillWidth(): Disposer {
+  /* 没有 ResizeObserver 的环境（老 WebView）直接不装：样式表的 var() 兜底值
+     （一半宽度）本来就是可用状态，只是模型标签少显示几个字。 */
+  if (typeof ResizeObserver !== 'function') return () => {}
+  let card: Element_ = null
+  let modes: Element_ = null
+  let raf = 0
+  const observer: any = new ResizeObserver(() => sync())
+  const sync = (): void => {
+    const nextCard = card && card.isConnected ? card : document.querySelector(COMPOSER_CARD)
+    if (!nextCard) return
+    const nextModes = modes && modes.isConnected ? modes : document.querySelector(COMPOSER_MODES)
+    if (nextModes !== modes) {
+      if (modes) observer.unobserve(modes)
+      modes = nextModes
+      if (modes) observer.observe(modes)
+    }
+    card = nextCard
+    const width = modes && typeof modes.getBoundingClientRect === 'function' ? modes.getBoundingClientRect().width : 0
+    const next = `${width}px`
+    /* 值没变就不写：写自定义属性会让模型胶囊重新算 max-width（多一次样式失效）。 */
+    if (card.style.getPropertyValue(MODES_W_VAR) !== next) card.style.setProperty(MODES_W_VAR, next)
+  }
+  const wake = (): void => {
+    if (!raf) raf = window.requestAnimationFrame(() => { raf = 0; sync() })
+  }
+  window.addEventListener('resize', wake)
+  /* 换会话时作曲栏可能整块重建：用户一点进去（focusin）就重新认一次卡片/胶囊。 */
+  document.addEventListener('focusin', wake, true)
+  sync()
+  return () => {
+    observer.disconnect()
+    window.removeEventListener('resize', wake)
+    document.removeEventListener('focusin', wake, true)
+    if (raf) window.cancelAnimationFrame(raf)
+    raf = 0
+    if (card) card.style.removeProperty(MODES_W_VAR)
+  }
+}
+
 export const installers: Array<() => Disposer> = [
   installTooltipReanchor,
   installTouchInteractions,
@@ -441,6 +492,7 @@ export const installers: Array<() => Disposer> = [
   installEnterKeyHint,
   installKeyboardFollow,
   installSidebarFab,
+  installModelPillWidth,
 ]
 
 export function apply(ctx: ClientCtx): void {

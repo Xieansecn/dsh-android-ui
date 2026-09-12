@@ -9,9 +9,9 @@
 | # | 改动 | 实现位置 | 官方机制 |
 |---|---|---|---|
 | 1 | viewport：`viewport-fit=cover` + `interactive-widget=resizes-content`（安全区、软键盘收缩内容区而不是覆盖页面） | Node 半 | `ctx.webServer.tapIndex()` 就地改写已有 `<meta name="viewport">` |
-| 2 | 移动端 CSS：抽屉式侧栏、≥44px 触控目标、safe-area 避让、作曲栏重排（权限/模型胶囊移到输入框上方独立成排、发送键固定输入框右下角）、设置面板全屏、各类下拉不出屏 | Node 半 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
+| 2 | 移动端 CSS：抽屉式侧栏、≥44px 触控目标、safe-area 避让、作曲栏重排（权限/模型胶囊移到输入框上方独立成排、发送键固定输入框右下角、模型名顶到权限胶囊前 12px 才省略）、设置面板全屏、各类下拉不出屏 | Node 半 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
 | 3 | 启动前 polyfill：`AbortSignal.any`、`crypto.randomUUID`（局域网 HTTP / 老 WebView 缺失时前端起不来） | Node 半 | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
-| 4 | 运行时 DOM 效果：tooltip 气泡重吸附、触摸按下显示/松手销毁气泡、抽屉遮罩点击关闭、"+"号不唤起键盘、子代理下拉吸附、`enterkeyhint=newline`、**软键盘跟随**（visualViewport） | 浏览器半 | `dsh.client` 客户端插件 + `ctx.effect()` |
+| 4 | 运行时 DOM 效果：tooltip 气泡重吸附、触摸按下显示/松手销毁气泡、抽屉遮罩点击关闭、"+"号不唤起键盘、子代理下拉吸附、`enterkeyhint=newline`、**软键盘跟随**（visualViewport）、**模型胶囊宽度跟随权限胶囊**（`--dsh-modes-w`） | 浏览器半 | `dsh.client` 客户端插件 + `ctx.effect()` |
 | 5 | PWA manifest `display: fullscreen → standalone` | 可选脚本 | `scripts/manifest-standalone.mjs`（见下文"为什么这一项只能离线做"） |
 
 浏览器半的每条效果都注册在**一个** `ctx.effect()` 里并在 disposer 中回收（rAF / MutationObserver / 监听器 / 定时器 / 被改写的 `html` 样式），插件停止或更新后页面回到未安装状态。

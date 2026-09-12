@@ -39,6 +39,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
   3. `{ kind: 'script', placement: 'head', text: PREBOOT_POLYFILLS }` —— 解析期执行，早于应用 module 脚本（测试里有断言）。
 - `inject = ['webServer']` 是硬依赖：没有 webServer 就没有 index 可改。别改成 `ctx.get('webServer')` 的可选读法——那样插件可能在 webServer 挂载前 apply，tap 永远不注册，viewport 静默失效。
 - 浏览器半：所有效果在**一个** `ctx.effect` 中安装，返回的 disposer 逐个回收。`installers` 数组是唯一的注册表。
+- **CSS 表达不了的就量出来喂给 CSS**：模型胶囊的宽度上限要吃权限胶囊的**实测宽度**（`installModelPillWidth` 用 ResizeObserver 把 px 写进卡片上的 `--dsh-modes-w`，样式表的 `max-width: calc(100% - var(--dsh-modes-w, 50%) - 12px)` 用它算出"顶到邻居就省略"）。变量没写上/没有 ResizeObserver 时样式表的兜底值仍然安全（不会重叠）。
 - **安装时机也是性能设计**：`apply()` 里只挂一个 `load` 钩子，真正的安装交给 `installWhenIdle`（load 之后的空闲帧）；突变驱动的工作一律过 `installPerFrame` 收敛到一帧一次。宿主首屏挂载期间突变是连续的，装在前就是跟宿主抢主线程。
 
 ## Conventions
@@ -71,7 +72,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
 - 真机检查点（装进 profile、重启后，手机 390px 竖屏）：
   1. 地址栏页面无横向滚动，刘海/挖孔不遮内容，底部输入区有 safe-area 留白；
   2. 点作曲栏"+"不弹键盘；输入法回车键显示"换行"；
-  3. 作曲栏版式：权限（可能带"计划"胶囊）/模型两颗胶囊在输入框**上方独立成排**（权限贴左、模型贴右，互不重叠，不压输入框、不压消息区），发送键固定停在输入框**右下角**、不折行；320px 窄屏同样成立；
+  3. 作曲栏版式：权限（可能带"计划"胶囊）/模型两颗胶囊在输入框**上方独立成排**（权限贴左、模型贴右，互不重叠，不压输入框、不压消息区），发送键固定停在输入框**右下角**、不折行；模型名尽量完整——能顶到权限胶囊前 12px 才省略（权限胶囊越窄、模型名显示越多）；320px 窄屏同样成立；
   4. 弹出软键盘：作曲栏与整页上移、不被键盘盖住；收起后完全还原；
   5. 侧栏展开是覆盖式抽屉，点右侧遮罩空白处能关闭；设置面板全屏；
   6. 用量/上下文面板与子代理下拉不超出视口；
