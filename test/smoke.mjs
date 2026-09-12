@@ -428,6 +428,20 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.equal(clientModule.name, 'dsh-android-ui')
   assert.equal(typeof clientModule.apply, 'function')
   assert.equal(clientModule.inject.length, 0, 'inject 应为空数组（无服务依赖）')
+  // 卸载发生在 load 之前：deferred 安装必须被 cancelled 标记挡住，迟到的 load 不能
+  // 把已经停掉的插件重新唤醒（否则插件停用后页面还会被改）。
+  let disposeEarly
+  clientModule.apply({
+    effect(fn) {
+      disposeEarly = fn()
+    },
+  })
+  const earlyLoad = listeners.get('w:load')
+  disposeEarly()
+  assert.equal(listeners.has('w:load'), false, '卸载应摘掉 load 钩子')
+  earlyLoad()
+  assert.equal(observers.length, 0, '已卸载的插件不应被迟到的 load 唤醒')
+  assert.equal(documentStub.body.childNodes.length, 0, '已卸载的插件不应注入按钮')
   let dispose
   clientModule.apply({
     effect(fn) {
@@ -435,9 +449,14 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     },
   })
   assert.equal(typeof dispose, 'function', 'apply 应返回 disposer 供框架回收')
-  assert.ok(observers.length >= 1, '应安装 MutationObserver')
-  assert.ok(listeners.size >= 3, '应安装 DOM/visualViewport 监听')
-  assert.equal(documentStub.body.childNodes.length, 1, '应注入悬浮侧栏开关按钮')
+  // 安装推迟到 load 之后（避开宿主首屏挂载的突变风暴）：load 前只挂一个 load 钩子。
+  assert.equal(observers.length, 0, 'load 前不应安装 observer')
+  assert.equal(documentStub.body.childNodes.length, 0, 'load 前不应注入悬浮侧栏按钮')
+  assert.equal(typeof listeners.get('w:load'), 'function', '应挂 load 钩子等待安装时机')
+  listeners.get('w:load')?.()
+  assert.ok(observers.length >= 1, 'load 后应安装 MutationObserver')
+  assert.ok(listeners.size >= 3, 'load 后应安装 DOM/visualViewport 监听')
+  assert.equal(documentStub.body.childNodes.length, 1, 'load 后应注入悬浮侧栏开关按钮')
   // 捕获阶段的"点会话行收起抽屉"判定：行内控件（三点菜单）不能算点行本身，
   // 否则菜单刚弹就被插件收掉抽屉（真机复现过）。这里只看两种情况是否安排收起。
   let scheduled = 0

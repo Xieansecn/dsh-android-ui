@@ -16,6 +16,8 @@
 
 浏览器半的每条效果都注册在**一个** `ctx.effect()` 里并在 disposer 中回收（rAF / MutationObserver / 监听器 / 定时器 / 被改写的 `html` 样式），插件停止或更新后页面回到未安装状态。
 
+效果**不在首屏安装**：`apply()` 只挂一个 `load` 钩子，真正的安装推迟到 `load` 之后的空闲帧（`installWhenIdle`），突变驱动的工作按帧收敛（`installPerFrame`）。dsh 启动时会同时唤醒所有客户端插件，本模块把首屏那段主线程让出去——模拟 2000 节点启动：同步装要付 800 次 MutationObserver 回调 / 603 次 `querySelector` / ~40ms，延时装首屏 0 次，装上后同一批突变只 28 次查询。
+
 ## 安装
 
 ```sh

@@ -39,12 +39,14 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
   3. `{ kind: 'script', placement: 'head', text: PREBOOT_POLYFILLS }` —— 解析期执行，早于应用 module 脚本（测试里有断言）。
 - `inject = ['webServer']` 是硬依赖：没有 webServer 就没有 index 可改。别改成 `ctx.get('webServer')` 的可选读法——那样插件可能在 webServer 挂载前 apply，tap 永远不注册，viewport 静默失效。
 - 浏览器半：所有效果在**一个** `ctx.effect` 中安装，返回的 disposer 逐个回收。`installers` 数组是唯一的注册表。
+- **安装时机也是性能设计**：`apply()` 里只挂一个 `load` 钩子，真正的安装交给 `installWhenIdle`（load 之后的空闲帧）；突变驱动的工作一律过 `installPerFrame` 收敛到一帧一次。宿主首屏挂载期间突变是连续的，装在前就是跟宿主抢主线程。
 
 ## Conventions
 
 - **每个效果必须可回收、且必须还原自己改过的 DOM**。软键盘跟随会写 `html.style.height` / `data-dsh-kb-open` / `--dsh-kb`，disposer 里必须清空；否则插件重载一次，页面就永久留着一个被压扁的高度（冒烟测试专门断言了这点）。
 - **rAF 循环 + MutationObserver 的任务必须成对关闭**（`installFrameTask` 是唯一实现，别再手写第二份）：断 observer、摘监听、`cancelAnimationFrame`。
 - **ticker/定时器同理**：`installTouchInteractions` 里的 `hideTimer` 必须在 disposer 里 `clearTimeout`。
+- **不要在 `apply()` 里同步装效果**：每条效果都会建 document 级 MutationObserver，而 dsh 启动时会同时唤醒所有客户端插件。走 `installWhenIdle`（load 之后的空闲帧）+ `installPerFrame`（每帧最多跑一次）——实测 2000 节点 / 200 批突变的模拟启动：同步装 = 800 次 MO 回调 / 603 次 `querySelector` / ~40ms 主线程；延时装 = 首屏 0 次，装上后同一批突变只 28 次查询。这些效果都只在用户交互后才有用，晚半个节拍装没有观感差异。
 - **中文注释**，与上游 Android 工具包保持一致的表述（说明"为什么"而不是"做了什么"）。
 - **哈希类名集中放置**：`src/client.ts` 顶部常量（`BUBBLE` / `SUBAGENT_MENU` / `COMPOSER_INPUT` / `COMPOSER_ADD` / `SIDEBAR_TOGGLE`）与 `src/mobile-css.ts`。上游改版后只改这两处，不要在函数体里散落选择器字符串。
 - 注入的 CSS/JS 是**模板字符串文本**：内容里不能出现 `</script>`（会提前闭合注入的 script 标签）；`String.raw` 只用于避免反斜杠被吞。
@@ -64,7 +66,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
 
 ## Testing & QA
 
-- `npm test` 覆盖：注入行形状、移动端 CSS 的作曲栏版式尺寸契约（胶囊带预留 ≥ 胶囊 28px + 间隔、胶囊 `flex-shrink: 0` 不许折行顶高、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、旧的重叠 hack 已删）、viewport 就地改写（含幂等）、用官方 `renderIndexInjections()` 渲染真实 index.html 的顺序断言、VM 里真跑 polyfill、VM 里按协议装载浏览器半并断言完整卸载、官方 `loadOverlayPatches()` 解析本包 patch 层、包契约（`dsh.bundle`/`dsh.client`/`exports` 指向的文件都存在）。
+- `npm test` 覆盖：注入行形状、移动端 CSS 的作曲栏版式尺寸契约（胶囊带预留 ≥ 胶囊 28px + 间隔、胶囊 `flex-shrink: 0` 不许折行顶高、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、旧的重叠 hack 已删）、viewport 就地改写（含幂等）、用官方 `renderIndexInjections()` 渲染真实 index.html 的顺序断言、VM 里真跑 polyfill、VM 里按协议装载浏览器半并断言完整卸载、官方 `loadOverlayPatches()` 解析本包 patch 层、包契约（`dsh.bundle`/`dsh.client`/`exports` 指向的文件都存在），以及浏览器半的**安装时机**（load 前不装任何 observer/按钮、load 后才装、load 前卸载后迟到的 load 不能把插件唤醒）。
 - 找不到已安装的 dsh 时，依赖官方渲染器的那几项会打印 `[skip]` 而不是假装通过。
 - 真机检查点（装进 profile、重启后，手机 390px 竖屏）：
   1. 地址栏页面无横向滚动，刘海/挖孔不遮内容，底部输入区有 safe-area 留白；

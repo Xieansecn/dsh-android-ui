@@ -25,6 +25,8 @@ export const inject: string[] = []
 const BUBBLE = '._bubble_owhem_8'
 /** 子代理下拉类名（同上）。 */
 const SUBAGENT_MENU = '.h8S2Va_menu'
+/** 应用外壳（CSS module 本地名后缀，跨重新构建稳定；属性子串选择器，全文档扫描不便宜）。 */
+const FRAME = '[class*="_frame"]'
 /** 作曲输入框 / "+" 号 / 侧栏切换按钮类名（同上）。 */
 const COMPOSER_INPUT = '.uV2eYG_input'
 const COMPOSER_ADD = '.uV2eYG_add'
@@ -57,6 +59,54 @@ function clampToViewport(left: number, top: number, width: number, height: numbe
   if (t + height > vh - margin) t = vh - margin - height
   if (t < margin) t = margin
   return { left: l, top: t }
+}
+
+/** 突变驱动的"每帧最多跑一次"：宿主一次首屏挂载会甩出成百批突变（模拟 2000 节点的
+ *  启动 = 200 批），把 querySelector 直接挂在 MutationObserver 回调里就是每批全文档扫
+ *  一遍；统一收敛到一帧一次。 */
+function installPerFrame(run: () => void): { wake: () => void; stop: () => void } {
+  let raf = 0
+  const tick = (): void => {
+    raf = 0
+    run()
+  }
+  return {
+    wake: () => {
+      if (!raf) raf = window.requestAnimationFrame(tick)
+    },
+    stop: () => {
+      if (raf) window.cancelAnimationFrame(raf)
+      raf = 0
+    },
+  }
+}
+
+/** 全部效果的安装时机：页面 load 之后再上（能空闲就空闲帧）。
+ *  为什么：浏览器半每条效果都建 document 级 MutationObserver，而应用首屏挂载期间突变
+ *  是连续的（实测 200 批 × 4 个 observer = 800 次回调、600 次 querySelector，光回调就
+ *  烧掉 ~40ms）。这些效果（气泡/下拉/键盘跟随/侧栏入口）全都只在用户交互后才需要，
+ *  晚半个节拍装上没有观感差异，但把首屏主线程还给宿主 —— 原来是 apply() 里同步装，
+ *  dsh 启动时每个插件都在抢同一段主线程。 */
+function installWhenIdle(install: () => Disposer): Disposer {
+  let dispose: Disposer | null = null
+  let cancelled = false
+  const start = (): void => {
+    if (!cancelled) dispose = install()
+  }
+  const schedule = (): void => {
+    if (cancelled) return
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, opts: { timeout: number }) => unknown })
+      .requestIdleCallback
+    if (typeof idle === 'function') idle(start, { timeout: 500 })
+    else start()
+  }
+  if (document.readyState === 'interactive' || document.readyState === 'complete') schedule()
+  else window.addEventListener('load', schedule)
+  return () => {
+    cancelled = true
+    window.removeEventListener('load', schedule)
+    if (dispose) dispose()
+  }
 }
 
 /** 每帧唤醒式的 DOM 任务骨架：MutationObserver 只在有活儿时驱动 rAF。 */
@@ -167,7 +217,7 @@ function installTouchInteractions(): Disposer {
     const row = target.closest(SESSION_ROW)
     const onRowControl = !!row && !!target.closest(ROW_CONTROL)
     if (!target.hasAttribute('data-shell-overlay') && !(row && !onRowControl)) return
-    const frame = target.closest('[class*="_frame"]')
+    const frame = target.closest(FRAME)
     if (!frame || frame.hasAttribute('data-sidebar-collapsed')) return
     dismissTimer = window.setTimeout(() => {
       dismissTimer = 0
@@ -238,13 +288,18 @@ function installEnterKeyHint(): Disposer {
     if (el && !el.hasAttribute('enterkeyhint')) el.setAttribute('enterkeyhint', 'newline')
   }
   applyHint()
-  const observer = new MutationObserver(applyHint)
+  /* 突变按帧收敛：宿主首屏挂载期间一批突变就全文档扫一次输入框，纯属白烧。 */
+  const frame = installPerFrame(applyHint)
+  const observer = new MutationObserver(frame.wake)
   try {
     observer.observe(document.documentElement, { childList: true, subtree: true })
   } catch {
     /* 无 documentElement 时只在装载时设一次 */
   }
-  return () => observer.disconnect()
+  return () => {
+    observer.disconnect()
+    frame.stop()
+  }
 }
 
 /** 8) 软键盘跟随：支持 interactive-widget=resizes-content 的 WebView 会自行收缩布局视口
@@ -322,28 +377,38 @@ function installSidebarFab(): Disposer {
   fab.type = 'button'
   fab.setAttribute(FAB_ATTR, '')
   fab.setAttribute('aria-label', '打开侧边栏')
+  /* 缓存这两个查找：FRAME 是属性子串选择器（全文档扫一遍不便宜），而 sync 每帧都会跑；
+     React 换掉元素时 isConnected 变 false，缓存自然失效、下次重新查。 */
+  let toggle: Element_ = null
+  let frame: Element_ = null
+  const find = (cached: Element_, selector: string): Element_ => {
+    if (cached && cached.isConnected) return cached
+    return document.querySelector(selector)
+  }
   const sync = (): void => {
-    const host = document.querySelector(SIDEBAR_TOGGLE)
-    const frame = document.querySelector('[class*="_frame"]')
-    const show = !!mobile && mobile.matches && !!host && !!frame && frame.hasAttribute('data-sidebar-collapsed')
+    toggle = find(toggle, SIDEBAR_TOGGLE)
+    frame = find(frame, FRAME)
+    const show = !!mobile && mobile.matches && !!toggle && !!frame && frame.hasAttribute('data-sidebar-collapsed')
     if (!show) {
       fab.removeAttribute(FAB_VISIBLE_ATTR)
       return
     }
     if (fab.childNodes.length === 0) {
-      const icon = host.querySelector('svg')
+      const icon = toggle.querySelector('svg')
       if (!icon) return /* 图标还没渲染，等下一次 sync */
       fab.append(icon.cloneNode(true))
     }
     fab.setAttribute(FAB_VISIBLE_ATTR, '')
   }
   const openDrawer = (): void => {
-    const host = document.querySelector(SIDEBAR_TOGGLE)
-    if (host) host.click()
+    toggle = find(toggle, SIDEBAR_TOGGLE)
+    if (toggle) toggle.click()
   }
   fab.addEventListener('click', openDrawer)
   document.body.append(fab)
-  const observer = new MutationObserver(sync)
+  /* 同理按帧收敛：这个 observer 连 childList 都盯，首屏挂载期间回调一次接一次。 */
+  const frameTask = installPerFrame(sync)
+  const observer = new MutationObserver(frameTask.wake)
   try {
     observer.observe(document.documentElement, {
       childList: true,
@@ -354,14 +419,15 @@ function installSidebarFab(): Disposer {
   } catch {
     /* 无 documentElement 时退化为仅 resize 驱动 */
   }
-  window.addEventListener('resize', sync)
-  if (mobile && typeof mobile.addEventListener === 'function') mobile.addEventListener('change', sync)
+  window.addEventListener('resize', frameTask.wake)
+  if (mobile && typeof mobile.addEventListener === 'function') mobile.addEventListener('change', frameTask.wake)
   sync()
   return () => {
     observer.disconnect()
-    window.removeEventListener('resize', sync)
-    if (mobile && typeof mobile.removeEventListener === 'function') mobile.removeEventListener('change', sync)
+    window.removeEventListener('resize', frameTask.wake)
+    if (mobile && typeof mobile.removeEventListener === 'function') mobile.removeEventListener('change', frameTask.wake)
     fab.removeEventListener('click', openDrawer)
+    frameTask.stop()
     fab.remove()
   }
 }
@@ -378,10 +444,17 @@ export const installers: Array<() => Disposer> = [
 ]
 
 export function apply(ctx: ClientCtx): void {
-  ctx.effect(() => {
-    const disposers = installers.map((install) => install())
-    return () => {
-      for (const dispose of disposers) dispose()
-    }
-  }, 'dsh-android-ui: mobile DOM effects')
+  /* 安装推迟到 load 之后的空闲帧（见 installWhenIdle）：dsh 启动时每个客户端插件都在
+     抢同一段主线程，而本模块的效果全都要等用户交互才用得上。disposer 在"还没装上"时
+     也必须能安全回收——installWhenIdle 用 cancelled 标记兜住。 */
+  ctx.effect(
+    () =>
+      installWhenIdle(() => {
+        const disposers = installers.map((install) => install())
+        return () => {
+          for (const dispose of disposers) dispose()
+        }
+      }),
+    'dsh-android-ui: mobile DOM effects',
+  )
 }
