@@ -99,12 +99,98 @@ check('移动端 CSS：胶囊在卡片上方独立成排、发送键不折行', 
   assert.ok(row, '应能找到工具行规则')
   assert.ok(row[1].includes('flex-wrap: nowrap'), '底行不折行，发送键才固定停在右下角')
   assert.ok(row[1].includes('container-type: normal'), '行盒必须让出包含块（否则胶囊落回输入框上）')
+  // 新会话页没有上下文仪表面板时，trailing 里只剩发送键；它必须保留 flex 盒子，
+  // 否则宿主/本文件给它的 margin-left:auto 会被 display:contents 一起拆掉。
+  const trailing = /\.uV2eYG_trailing\s*\{([^}]*)\}/.exec(css)
+  assert.ok(trailing, '应能找到 trailing 右对齐规则')
+  assert.ok(trailing[1].includes('display: flex'), 'trailing 不能被 display:contents 拆掉')
+  assert.ok(trailing[1].includes('margin-left: auto'), 'trailing 必须保留右推边距，发送键才会始终贴右')
   // 模型胶囊的宽度上限吃浏览器半写上的 --dsh-modes-w（"顶到权限胶囊再省略"），
   // 且必须有不用变量的兜底值，否则量尺寸的脚本来不及跑时两颗胶囊会重叠。
   // 注意：._7KE1Ra_root 在合并规则里也出现，这里直接找带变量的那条。
   const model = /\._7KE1Ra_root\s*\{([^}]*var\(--dsh-modes-w[^}]*)\}/.exec(css)
   assert.ok(model, '应能找到吃 --dsh-modes-w 的模型胶囊规则')
   assert.ok(model[1].includes('50%'), '模型胶囊宽度上限应带不依赖变量的兜底（一半宽度）')
+  // 光标位置由输入框自己的 padding/line-height 决定，而提示词是宿主按它原生几何
+  // （inset:4px 8px auto 14px）绝对定位的**平级**节点：本文件一改输入框，两边就错位。
+  // 这两条规则的值必须始终相等（这是"光标与提示词对齐"的唯一保证）。
+  const inputBox = /\.uV2eYG_input\s*\{([^}]*padding-top[^}]*)\}/.exec(css)
+  const placeholder = /\.uV2eYG_placeholder\s*\{([^}]*)\}/.exec(css)
+  assert.ok(inputBox && placeholder, '应能找到输入框与提示词规则')
+  const value = (body, prop) => {
+    const hit = new RegExp(`${prop}:\\s*([^;!]+)`).exec(body)
+    return hit && hit[1].trim()
+  }
+  assert.equal(
+    value(placeholder[1], 'top'),
+    value(inputBox[1], 'padding-top'),
+    '提示词的 top 必须等于输入框的 padding-top，否则光标与提示词上下错位',
+  )
+  assert.equal(
+    value(placeholder[1], 'left'),
+    value(inputBox[1], 'padding-left'),
+    '提示词的 left 必须等于输入框的 padding-left，否则光标与提示词左右错位',
+  )
+  assert.equal(
+    value(placeholder[1], 'line-height'),
+    value(inputBox[1], 'line-height'),
+    '提示词的行高必须等于输入框的行高，否则同一行里两条基线对不上',
+  )
+})
+
+// 侧栏会话行沿用宿主尺寸：宿主 32px 高，曾经被本模块抬到 44px（触摸目标），
+// 现在按"不改尺寸"的要求交回宿主 —— 谁再抬一次，这条会红。
+check('移动端 CSS 不改侧栏会话行的尺寸', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  assert.ok(
+    !/\[class\*="_sessionRow"\][^{]*\{[^}]*min-height/.test(css),
+    '侧栏会话行不应有 min-height 覆盖（沿用宿主原尺寸）',
+  )
+})
+
+// 会话页头：让位给悬浮开关的左边距只许出现在 header 上（其他行各自再加偏移就
+// 对不齐了），且必须够避开关闭态的悬浮开关（38px 圆钮 + 10px 左距 + 8px 间隔）。
+check('会话页头：各行共用同一条左基线，且避开悬浮开关', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const header = /\.wSkVaW_header\s*\{([^}]*)\}/.exec(css)
+  const tabs = /\.wSkVaW_tabs\s*\{([^}]*)\}/.exec(css)
+  assert.ok(header && tabs, '应能找到页头与标签页规则')
+  const shorthand = /padding:\s*([^;!]+)/.exec(header[1])
+  assert.ok(shorthand, '页头应有 padding 简写')
+  const parts = shorthand[1].trim().split(/\s+/)
+  const left = parts.length === 4 ? parts[3] : parts.length === 2 ? parts[1] : parts[0]
+  assert.equal(left, '56px', '页头左内边距必须让开悬浮开关（38 + 10 + 8 = 56px）')
+  assert.ok(/padding-left:\s*0/.test(tabs[1]), '标签页左内边距归零，才与标题共用同一条基线')
+  assert.ok(
+    !/\.wSkVaW_titleRow\s*\{[^}]*padding-left/.test(css),
+    '标题行不许再自己加左内边距（会在 56px 基线上再加一段）',
+  )
+  // 预设胶囊（当前会话用的 preset）必须与标题同排：曾经写死 flex-basis:100% 让它
+  // "独占一行"，结果标题与 preset 永远分两排、中间空一整行。
+  const actions = /\.wSkVaW_headerActions\s*\{([^}]*)\}/.exec(css)
+  assert.ok(actions, '应能找到页头操作区规则')
+  assert.ok(
+    /flex:\s*0 1 auto/.test(actions[1]) && !/flex:\s*0 0 100%/.test(actions[1]),
+    '预设胶囊必须可与标题同排（flex-basis:100% 会把它顶到自己一行）',
+  )
+})
+
+// 宿主类名核对：上游重新发布同一个 dsh 版本时哈希也会变（.h8S2Va_* → .ZKlsPq_* 等），
+// 旧名字留在代码里不会报错、只是效果静默失效 —— 所以这里把"已核对过的旧名"钉住。
+check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
+  const texts = [
+    host.injectionRows().find((row) => row.kind === 'style').text,
+    readFileSync(join(root, 'lib', 'client.js'), 'utf8'),
+  ]
+  for (const stale of ['h8S2Va', 'Md3f7G', '_list_19372_8', '_bubble_owhem_8']) {
+    for (const text of texts) {
+      assert.ok(!text.includes(stale), `旧哈希类名 ${stale} 应已按新构建更新`)
+    }
+  }
+  // 反过来的坑：子代理下拉由宿主 createPortal + 内联坐标定位，本文件给它写
+  // left/right/top !important 会盖掉内联样式（!important 赢过内联）→ 菜单跑偏。
+  const css = texts[0]
+  assert.ok(!/\.ZKlsPq_menu\s*[,{]/.test(css), '子代理下拉不能有 CSS 覆盖（会盖掉宿主内联坐标）')
 })
 
 check('viewport 内容含 viewport-fit=cover 与 interactive-widget', () => {
@@ -467,6 +553,12 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     MutationObserver: MutationObserverStub,
     ResizeObserver: ResizeObserverStub,
     AbortController,
+    KeyboardEvent: class KeyboardEventStub {
+      constructor(type, init = {}) {
+        this.type = type
+        Object.assign(this, init)
+      }
+    },
     Array,
     Object,
     Math,
@@ -527,12 +619,13 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     scheduled += 1
     return 0
   }
-  const fireClick = ({ row, control, frame = true }) =>
+  const fireClick = ({ row, control, frame = true, trigger = false }) =>
     listeners.get('click')({
       target: {
         nodeType: 1,
         hasAttribute: () => false,
         closest: (sel) => {
+          if (sel.includes('ZKlsPq_trigger')) return trigger ? {} : null
           if (sel.includes('_sessionRow')) return row ? {} : null
           if (sel.includes('_frame')) return frame ? { hasAttribute: () => false } : null
           return control ? {} : null
@@ -543,6 +636,38 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.equal(scheduled, 0, '点会话行内的控件（三点菜单）不应收起抽屉')
   fireClick({ row: true, control: false })
   assert.equal(scheduled, 1, '点会话行本体应安排收起抽屉')
+  // 子代理血缘触发器：宿主只绑了 hover（onMouseEnter → 150ms）与 ArrowDown，当前会话
+  // 那一颗连 onClick 都没有 —— 触摸端点第二下不会再派发 mouseenter，菜单就打不开。
+  // 我们等一拍确认菜单没开，再补发一次 ArrowDown（宿主自己的键盘路径）。
+  const timers = []
+  windowStub.setTimeout = (fn) => {
+    scheduled += 1
+    timers.push(fn)
+    return timers.length
+  }
+  const dispatched = []
+  const triggerStub = { dispatchEvent: (event) => dispatched.push(event) }
+  const tapTrigger = () =>
+    listeners.get('click')({
+      target: {
+        nodeType: 1,
+        hasAttribute: () => false,
+        closest: (sel) => (sel.includes('ZKlsPq_trigger') ? triggerStub : null),
+      },
+    })
+  tapTrigger()
+  assert.equal(timers.length, 1, '点触发器应等一拍再确认菜单开没开')
+  timers.pop()()
+  assert.equal(dispatched.length, 1, '菜单没开时应补发宿主键盘路径')
+  assert.equal(dispatched[0].key, 'ArrowDown', '补发的必须是 ArrowDown（宿主的打开按键）')
+  // 菜单已经被合成的 mouseenter 打开：不能再补发，否则等于和用户对着开
+  const menuStub = {}
+  const realQuery = documentStub.querySelector
+  documentStub.querySelector = (sel) => (sel === '.ZKlsPq_menu' ? menuStub : realQuery(sel))
+  tapTrigger()
+  timers.pop()()
+  assert.equal(dispatched.length, 1, '菜单已开时不应重复补发')
+  documentStub.querySelector = realQuery
   // 模拟键盘弹出后再卸载，检查 DOM 被还原
   listeners.get('w:resize')?.()
   visualViewport.height = 500

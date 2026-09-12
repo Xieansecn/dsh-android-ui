@@ -9,6 +9,8 @@
  *   4) 触摸交互：按下显示气泡、松手销毁；抽屉遮罩点击关闭
  *   5) 作曲栏 "+" 号在触摸端不唤起软键盘（捕获 mousedown，阻止 React 根 keepFocus）
  *   6) 子代理下拉吸附触发器下方（实测 containing block 偏移后换算坐标）
+ *      —— 已删：宿主现在自己用 createPortal + JS 算坐标（top = 触发器下沿 + 5、
+ *      left 视口内 clamp）并写内联 style，这里再写只会跟 React 抢同一个属性。
  *   7) 作曲输入框 enterkeyhint=newline（配合"普通回车=换行"的会话补丁）
  *   8) 软键盘跟随：visualViewport 收缩时把根容器压到可视高度，整页（含输入框）抬起
  *
@@ -21,10 +23,12 @@ export const name = 'dsh-android-ui'
 /** 不需要任何宿主服务：效果全部作用于本页 DOM。 */
 export const inject: string[] = []
 
-/** 气泡类名（dsh 构建产物哈希类，版本敏感）。 */
-const BUBBLE = '._bubble_owhem_8'
-/** 子代理下拉类名（同上）。 */
-const SUBAGENT_MENU = '.h8S2Va_menu'
+/** tooltip 气泡类名（dsh 构建产物哈希类，版本敏感：同一个 0.1.5-rc.1 重新构建后
+ *  由 ._bubble_owhem_8 变成 ._bubble_1nw3t_1）。 */
+const BUBBLE = '._bubble_1nw3t_1'
+/** 子代理血缘下拉：触发器（页头 crumbs 里那颗）与它展开的菜单（同上，版本敏感）。 */
+const SUBAGENT_TRIGGER = '.ZKlsPq_trigger, .ZKlsPq_switcherTrigger'
+const SUBAGENT_MENU = '.ZKlsPq_menu'
 /** 应用外壳（CSS module 本地名后缀，跨重新构建稳定；属性子串选择器，全文档扫描不便宜）。 */
 const FRAME = '[class*="_frame"]'
 /** 作曲输入框 / "+" 号 / 侧栏切换按钮类名（同上）。 */
@@ -182,10 +186,14 @@ function installTooltipReanchor(): Disposer {
   })
 }
 
-/** 4) 触摸交互：按下显示被触摸锚点的气泡；松手销毁全部气泡；遮罩/会话行点按收起抽屉。 */
+/** 4) 触摸交互：按下显示被触摸锚点的气泡；松手销毁全部气泡；遮罩/会话行点按收起抽屉；
+ *  子代理血缘触发器点按补开下拉（宿主只给了 hover 路径，见下）。 */
 function installTouchInteractions(): Disposer {
+  const isTouch =
+    'ontouchstart' in window || (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0)
   let hideTimer = 0
   let dismissTimer = 0
+  let menuTimer = 0
   const wakeAnchor = (): void => {
     window.dispatchEvent(new Event('resize'))
   }
@@ -208,6 +216,25 @@ function installTouchInteractions(): Disposer {
   const onTouchEnd = (): void => {
     hideTimer = window.setTimeout(hideBubbles, 120)
   }
+  /* 子代理血缘触发器（页头 crumbs 里那颗，`.ZKlsPq_trigger` / `_switcherTrigger`）在
+     宿主里**只有 hover 路径**：外层 onMouseEnter → 150ms 后 changeOpen(true)，
+     按钮自己只绑了 ArrowDown；当前会话那一颗连 onClick 都没有。
+     触摸端第一下能开，是因为浏览器在点按时补发合成的 mouseenter；之后 hover 状态
+     没变、不再派发 mouseenter，同一颗按钮就再也点不开了（真机："点子会话有时打不开"）。
+     这里走宿主自己的键盘路径补一发 ArrowDown（它的 onKeyDown → changeOpen(true)），
+     不是合成点击。等一拍是让合成的 mouseenter 先跑完 —— 菜单真开出来了就什么都不做。 */
+  const openSubagentMenuOnTap = (event: Event): void => {
+    if (!isTouch) return
+    const target: Element_ = event.target
+    if (!target || typeof target.closest !== 'function') return
+    const trigger: Element_ = target.closest(SUBAGENT_TRIGGER)
+    if (!trigger) return
+    menuTimer = window.setTimeout(() => {
+      menuTimer = 0
+      if (document.querySelector(SUBAGENT_MENU)) return
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    }, 250)
+  }
   /* 覆盖式抽屉的退出路径。0.1.5-rc.1 把 data-details-collapsed 换成了
      data-sidebar-collapsed（**展开时该属性整个消失**），旧的守卫因此永不成立：
      390px 实测真鼠标点遮罩不关、点会话行也不关，抽屉展开后只能去按抽屉里那颗
@@ -217,7 +244,8 @@ function installTouchInteractions(): Disposer {
      但本监听在 document 捕获阶段先跑，不在这里排掉，菜单刚弹就被我们收掉抽屉
      （真机复现过）。判定只能看 target —— 宿主是点击后约 100ms 才给行加 menuOpen
      并挂菜单，等行状态是竞态。 */
-  const onBackdropClick = (event: Event): void => {
+  const onDocumentClick = (event: Event): void => {
+    openSubagentMenuOnTap(event)
     const target: Element_ = event.target
     if (!target || target.nodeType !== 1 || typeof target.closest !== 'function') return
     const row = target.closest(SESSION_ROW)
@@ -234,13 +262,14 @@ function installTouchInteractions(): Disposer {
   }
   document.addEventListener('touchstart', showTouchedBubble, true)
   document.addEventListener('touchend', onTouchEnd, true)
-  document.addEventListener('click', onBackdropClick, true)
+  document.addEventListener('click', onDocumentClick, true)
   return () => {
     if (hideTimer) window.clearTimeout(hideTimer)
     if (dismissTimer) window.clearTimeout(dismissTimer)
+    if (menuTimer) window.clearTimeout(menuTimer)
     document.removeEventListener('touchstart', showTouchedBubble, true)
     document.removeEventListener('touchend', onTouchEnd, true)
-    document.removeEventListener('click', onBackdropClick, true)
+    document.removeEventListener('click', onDocumentClick, true)
   }
 }
 
@@ -258,33 +287,6 @@ function installAddButtonKeyboardGuard(): Disposer {
   }
   document.addEventListener('mousedown', onMouseDown, true)
   return () => document.removeEventListener('mousedown', onMouseDown, true)
-}
-
-/** 6) 子代理下拉：position:fixed 的 containing block 可能是带 transform/contain 的祖先，
- *  每帧实测偏移（left/top/transform 临时归零后读矩形）再换算坐标，避免菜单出屏。 */
-function installSubagentMenuReanchor(): Disposer {
-  const GAP = 5
-  const MARGIN = 12
-  return installFrameTask(SUBAGENT_MENU, (menu) => {
-    const root = menu.parentElement
-    if (!root) return
-    const r = root.getBoundingClientRect()
-    const m = menu.getBoundingClientRect()
-    if (m.width === 0 && m.height === 0) return /* 宽度未就绪时跳过，等下一帧 */
-    const placed = clampToViewport(r.left, r.bottom + GAP, m.width, m.height, MARGIN)
-    const prevLeft = menu.style.left
-    const prevTop = menu.style.top
-    const prevTransform = menu.style.transform
-    menu.style.left = '0px'
-    menu.style.top = '0px'
-    menu.style.transform = 'none'
-    const base = menu.getBoundingClientRect()
-    menu.style.left = prevLeft
-    menu.style.top = prevTop
-    menu.style.transform = prevTransform
-    menu.style.left = `${placed.left - base.left}px`
-    menu.style.top = `${placed.top - base.top}px`
-  })
 }
 
 /** 7) 作曲输入框 enterkeyhint=newline：让安卓输入法把回车键显示为"换行"。 */
@@ -488,7 +490,6 @@ export const installers: Array<() => Disposer> = [
   installTooltipReanchor,
   installTouchInteractions,
   installAddButtonKeyboardGuard,
-  installSubagentMenuReanchor,
   installEnterKeyHint,
   installKeyboardFollow,
   installSidebarFab,

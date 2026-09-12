@@ -3,13 +3,19 @@
  *
  * 移植自 deepseek-harness-android/patches/mobile.css，规则逐字保留。
  *
- * ⚠️ 版本敏感：选择器里的类名（.h8S2Va_menu / .uV2eYG_* / .VOzbGW_* / ._7KE1Ra_* /
- * .wSkVaW_* / .hHd-Xa_* / .Md3f7G_* / ._list_19372_8 / .pI_x6G_frame 系列）来自
- * dsh 0.1.5-rc.1 的构建产物，上游重新构建后哈希前缀会变、CSS module 的本地名
- * （_frame / _sidebarCol / _menu …）不变。改名前这些规则只是不命中（不影响功能），
- * 改名后需要同步更新本文件：优先依赖 data-* 稳定契约（data-sidebar-collapsed /
- * data-rightbar-collapsed / data-shell-overlay / data-dsh-kb-open），其次按本地名
- * 后缀做子串匹配（[class*="_frame"]），最后才是整串哈希类名。
+ * ⚠️ 版本敏感：选择器里的类名（.uV2eYG_* / .VOzbGW_* / ._7KE1Ra_* / .wSkVaW_* /
+ * .hHd-Xa_* / .ZKlsPq_* / .EvIC1a_* / ._list_1nxmc_8 / .QsffPG_* / .JObwrW_* /
+ * .pI_x6G_frame 系列，以及 client.ts 的 ._bubble_1nw3t_1）来自 dsh 0.1.5-rc.1 的
+ * 构建产物，上游重新构建后哈希前缀会变、CSS module 的本地名（_frame / _sidebarCol /
+ * _menu …）不变。**版本号没变也会变**：同一个 0.1.5-rc.1 重新发布后 .h8S2Va_* →
+ * .ZKlsPq_*、.Md3f7G_hint → .EvIC1a_hint、._list_19372_8 → ._list_1nxmc_8、
+ * ._bubble_owhem_8 → ._bubble_1nw3t_1（2026-09 实测），所以升级 dsh 后要按本文件
+ * 逐个类名核对是否还命中（不命中只是效果静默失效，不会报错）。核对方法：在
+ * `npm root -g`/@deepseek-ai/dsh/node_modules 下 grep 类名，或按本地名反查
+ * （`grep -rho "[A-Za-z0-9_-]*_hint\b"`）。
+ * 优先依赖 data-* 稳定契约（data-sidebar-collapsed / data-rightbar-collapsed /
+ * data-shell-overlay / data-dsh-kb-open），其次按本地名后缀做子串匹配
+ * （[class*="_frame"]），最后才是整串哈希类名。
  * 踩过的坑：data-details-collapsed 在 0.1.5-rc.1 已被 data-sidebar-collapsed 取代，
  * 旧规则静默失效，展开侧栏会把对话区挤成窄条（见下方抽屉段注释）。
  */
@@ -27,18 +33,16 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   --dsh-android-ui-drawer-ms: 240ms;
 }
 
-/* 子代理目录树下拉（.h8S2Va_menu）：所有宽度生效的通用修正。
- * 上游构建的菜单用 left:0 以触发器左缘为锚向右展开，而触发器位于
- * 会话页头右侧，宽屏/窄屏下右边界都可能超出视口。此处改为右对齐触发器
- * 右边缘、向左展开（与页头 token 面板 right:0 模式一致）。
- * <=480px 的移动端由下方媒体查询（position:fixed + 运行时定位）接管，
- * 该查询里显式 right:auto 保证不受本规则约束。 */
-.h8S2Va_menu {
-  left: auto !important;
-  right: 0 !important;
-}
+/* 子代理目录树下拉（.ZKlsPq_menu）**故意不写规则**：上游 rc.1 之后改成
+ * createPortal + JS 定位（catalogMenuPosition：top = 触发器下沿 + 5，left 在
+ * 视口内 clamp，宽度/高度也用 CSS 的 min(…, 100vw/100vh - …) 收住），并且把
+ * 坐标写在内联 style 上。本文件任何 left/right/top 的 !important 都会盖掉内联
+ * 值（!important 胜过内联），等于把菜单按到视口边缘或静态位置 —— 那正是
+ * 2026-09 之前为"绝对定位 + left:0"版本写的旧规则，现在只会帮倒忙。
+ * 若将来上游回退成纯 CSS 左锚定展开，右边界会重新出屏，届时再加回来。 */
 
-/* 后台任务下拉（.QsffPG_menu）：与子代理下拉同款修正。 */
+/* 后台任务下拉（.QsffPG_menu）：上游仍是 trigger 内的 absolute;left:0
+ * （无内联坐标），触发器贴页头右侧 → 右边界会出屏，这里右对齐触发器右缘。 */
 .QsffPG_menu {
   left: auto !important;
   right: 0 !important;
@@ -136,9 +140,16 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     opacity: 1;
     pointer-events: auto;
   }
-  /* 悬浮开关压在左上角，对应把会话页头内容右移，别压住标题。 */
-  [class*="_frame"] [class*="_titleRow"] {
-    padding-left: 56px !important;
+  /* 悬浮开关压在左上角，会话页头整块让出这条带：38px 圆钮 + 10px 左边距 + 8px
+     间隔 = 56px。让位**统一给 header**，不给 titleRow —— 后者实际让出的是
+     20(header 左内边距) + 56 = 76px，比标签页那一行（header 20 + tabs 8 = 28px）
+     右了 48px，标题和标签页左缘根本对不齐；统一到 header 后每一行共用同一条
+     基线，纵向压缩时也不会有哪一行钻到圆钮底下。
+     右边距沿用宿主的 28px：headerCorner 自带 margin-right:-16px，改小会把那颗
+     按钮推出屏幕（12px 是它算好的贴边量）。 */
+  .wSkVaW_header {
+    min-height: 0 !important; /* 宿主 76px 是给不换行的宽屏留的，手机上一路收到内容高度 */
+    padding: 6px 28px 0 56px !important;
   }
   /* 遮罩常驻、用透明度过渡，才能跟着抽屉一起淡出（只在展开态存在的话，
      一收起就"啪"地消失，没有收起动画）。 */
@@ -165,11 +176,9 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
      结果作曲栏又高又重，窄屏下 44px 的发送键还会被挤到下一行、跑到左下角。
      尺寸交回宿主后底行在 320px 也放得下，发送稳定停在右下角。 */
 
-  /* 抽屉里的会话行：宿主只有 32px 高（390px 实测），手机上是整个抽屉最常点的
-     目标，抬到 44px。按 CSS module 本地名后缀匹配，跨重新构建稳定。 */
-  [class*="_sessionRow"] {
-    min-height: 44px;
-  }
+  /* 抽屉里的会话行**不改尺寸**：宿主 32px 高（390px 实测），曾经为了让它在触摸端
+     好点抬到 44px，但一个抽屉只装得下几行、观感也更笨重 —— 尺寸交回宿主。
+     同理下面的图标按钮只抬高度不动宽度（宽度一改那排图标会被抽屉右缘裁掉）。 */
 
   /* 抽屉里偏小的控件：收起按钮实测 36×28、工作区标题右侧的搜索/视图选项/
      添加工作区 28×28。**只抬高度、不动宽度** —— 宽度一改，那排图标会挤出抽屉
@@ -212,12 +221,12 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   }
 
   /* 下拉菜单不出屏 */
-  ._list_19372_8 {
+  ._list_1nxmc_8 {
     max-width: calc(100vw - 16px) !important;
   }
 
-  /* 辅助字号微调 */
-  .Md3f7G_hint {
+  /* 辅助字号微调（会话页"回到底部"那组提示） */
+  .EvIC1a_hint {
     font-size: 13px;
   }
 
@@ -249,14 +258,17 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
          │ [输入框]                           │
          │ (＋) (📎)     ◔ 上下文已用 xx%  [发送] │
          └───────────────────────────────────┘
-     做法：tools/trailing 拍平（display:contents）后，两颗胶囊整体脱离文档流，绝对
-     定位到卡片上方（bottom:100%，包含块 = 卡片）；卡片同时用 margin-top 预留同高的
-     一条带（胶囊 28px + 间隔 8px = 36px）—— 是真占位，所以胶囊既不与输入框相连、
-     不压在输入框上，也不压住上方消息区。底行只剩 ＋/附件/上下文/发送，
-     flex-wrap:nowrap 保证它永远是一行：发送因此固定停在卡片右下角，不会再被挤到
-     下一行（宿主原尺寸下 320px 也放得下）。权限/模型的文字标签宿主默认 display:none
-     （窄屏只给图标），这里显式放出来；上下文那个按钮 DOM 里没有文本，用 ::after
-     取 aria-label（"上下文已用 xx%"）补上基本信息。
+     做法：tools 拍平（display:contents）把 ＋/附件 并进底行；trailing 保留 flex 盒子，
+     并显式 margin-left:auto —— 发送键的右对齐靠它。新会话页没有上下文胶囊、
+     trailing 里只剩发送键时，如果也把 trailing 拍平，这个右推边距会一起消失，
+     发送键就落到＋/附件后面；保留盒子后无论胶囊/上下文是否渲染，发送都在最右。
+     两颗胶囊整体脱离文档流，绝对定位到卡片上方（bottom:100%，包含块 = 卡片）；
+     卡片同时用 margin-top 预留同高的一条带（胶囊 28px + 间隔 8px = 36px）—— 是真
+     占位，所以胶囊既不与输入框相连、不压在输入框上，也不压住上方消息区。底行只剩
+     ＋/附件/上下文/发送，flex-wrap:nowrap 保证它永远是一行：发送因此固定停在卡片
+     右下角，不会再被挤到下一行（宿主原尺寸下 320px 也放得下）。权限/模型的文字标签
+     宿主默认 display:none（窄屏只给图标），这里显式放出来；上下文那个按钮 DOM 里
+     没有文本，用 ::after 取 aria-label（"上下文已用 xx%"）补上基本信息。
      为什么必须 container-type:normal：宿主给 .uV2eYG_row 的 container-type:inline-size
      附带 layout containment，会让**行盒**成为绝对/固定后代的包含块 —— 胶囊的
      bottom:100% 会落回卡片内部（输入框上），正是本次要拆掉的旧形态；它同时让卡片里
@@ -274,9 +286,17 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     /* 见上：让出包含块（胶囊定位到卡片、上下文面板锚定视口）。 */
     container-type: normal !important;
   }
-  .uV2eYG_tools,
-  .uV2eYG_trailing {
+  .uV2eYG_tools {
     display: contents !important;
+  }
+  /* trailing 不能 display:contents：宿主靠它的 margin-left:auto 把整组贴到右缘。
+     新会话页没有上下文仪表面板、trailing 里只剩发送键，拍平就会把右推边距一起
+     拆掉，发送键便跟在＋/附件后。保留盒子后空/满状态下发送都在最右。 */
+  .uV2eYG_trailing {
+    display: flex !important;
+    margin-left: auto !important;
+    gap: 10px !important;
+    min-width: 0 !important;
   }
   /* 胶囊带占位：只在真有胶囊时留（工作区选择等无胶囊状态不留空档）。
      :has 与宿主同基线——宿主自己也用 .uV2eYG_root:has([data-composer-stats])。 */
@@ -338,12 +358,12 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
   }
-  /* ② 底行：＋/附件 在左下，上下文 + 发送贴右下（上下文 margin-left:auto 顶过去）。
-     视觉顺序 = 文档顺序，不再需要 order；旧的 order/断行垫片是配合"胶囊压输入框"
-     那版排的，已随胶囊上移一并删除。 */
+  /* ② 底行：＋/附件 在左下，trailing 整体贴右；上下文在 trailing 内，发送是它的
+     最后一个子项。视觉顺序 = 文档顺序，不再需要 order；旧的 order/断行垫片是配合
+     "胶囊压输入框"那版排的，已随胶囊上移一并删除。 */
   .JObwrW_root {
+    /* trailing 已是右对齐盒子；这里只保证上下文自己可收缩，不把发送顶出去。 */
     margin-left: auto !important;
-    /* 底行 nowrap：上下文只能缩自己，不能把发送键顶出卡片。 */
     min-width: 0 !important;
   }
   /* 上下文按钮显式给 auto 宽度 + inline-flex，否则它仍是图标按钮（宿主 28×28），
@@ -391,6 +411,16 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   .uV2eYG_input {
     padding-top: 2px !important;
     padding-left: 8px !important; /* 与下面那排控件的左缘对齐（原来 14px，比 ＋ 号右 6px） */
+    line-height: 20px !important;
+  }
+  /* 提示词不是输入框的后代，而是 .uV2eYG_grow（position:relative）里与它平级的
+     绝对定位节点，宿主按**自己**的输入框几何写死 inset:4px 8px auto 14px。上面一改
+     内边距/行高，两边就各自为政：左偏 6px（14→8），竖直再偏 2px（上内边距 4→2）
+     加行高 24→20 的半行距差。把同一组值补给提示词，两者重新重合。改上面那三条时
+     必须同步改这里（冒烟测试盯着）。 */
+  .uV2eYG_placeholder {
+    top: 2px !important;
+    left: 8px !important;
     line-height: 20px !important;
   }
   .wSkVaW_composerSeat [class*="_pill"] {
@@ -457,9 +487,12 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     animation: dsh-android-ui-sheet-rise .2s ease-out;
   }
 
-  /* 会话头部：子代理另起一行，避免"预设/子代理/Session Log"挤在一行 */
+  /* 会话头部：标题行允许换行，子代理血缘另起一行，避免"预设/子代理/Session Log"
+     挤在一行。纵向一律收到最小 —— 左边基线由上面的 .wSkVaW_header 统一给 56px，
+     这里只调行高、间距与内边距，碰不到水平定位，所以收紧也不会重叠。 */
   .wSkVaW_titleRow {
     flex-wrap: wrap !important;
+    min-height: 24px !important;
   }
   /* 标题簇也必须可换行：下面那条 headerActions{flex-basis:100%} 的本意是
      "操作区独占一整行"，但标题簇（titleCluster）上游是 nowrap，100% 基线
@@ -468,33 +501,52 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
      （实测 100px），操作区落到第二行，页面行数不变。 */
   .wSkVaW_titleCluster {
     flex-wrap: wrap !important;
+    gap: 6px !important;
   }
+  /* 这一格是**当前会话的预设胶囊**（宿主 AgentPresetLabel：inline-flex、22px 高、
+     最多 180px、文字可省略）。这里曾经写死 flex:0 0 100%（想让它"独占一行"），
+     代价是标题与 preset 永远分两排、中间空出一整行。改成可收缩的同排项：胶囊贴
+     标题右侧；crumbs 有 min-width:0 + ellipsis，谁宽谁让位，实在放不下时由上面
+     titleCluster 的 wrap 兜底换行（flex 布局不会重叠）。 */
   .wSkVaW_headerActions {
-    flex: 0 0 100% !important;
+    flex: 0 1 auto !important;
     flex-wrap: wrap !important;
+    gap: 6px !important;
+    min-width: 0 !important;
   }
-  .h8S2Va_root {
+  /* 没装对应插件时这一槽是空的，空元素仍会占掉一个行间距，白给页头加高。 */
+  .wSkVaW_headerActions:empty {
+    display: none !important;
+  }
+  .wSkVaW_headerUtilities {
+    margin-left: 8px !important;
+    gap: 6px !important;
+  }
+  .wSkVaW_headerCorner {
+    margin-left: 4px !important;
+  }
+  /* 标题胶囊（宿主 4px 8px 内边距、22px 圆角）只收内边距，字号/行高不动。 */
+  .wSkVaW_crumb {
+    padding: 2px 6px !important;
+  }
+  /* 标签页与标题共用左基线：宿主自带 8px 左内边距会把它从基线上推走。 */
+  .wSkVaW_tabs {
+    margin-top: 2px !important;
+    padding-left: 0 !important;
+    gap: 24px !important;
+  }
+  .wSkVaW_tab {
+    padding-bottom: 6px !important;
+  }
+  .ZKlsPq_root {
     flex-basis: 100% !important;
   }
 
-  /* 子代理下拉：position:fixed 脱离 overflow 容器裁剪，仍吸附在触发器
-     下方（top:auto = 静态位置，即触发器正下方）；水平方向做成视口内
-     全宽面板（left:8px + right:8px），无论触发器位置/页面缩放如何，
-     右边界都不会超出视口。 */
-  .h8S2Va_menu {
-    position: fixed !important;
-    left: 8px !important;
-    right: 8px !important;
-    top: auto !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: calc(100vw - 16px) !important;
-    max-height: 60vh !important;
-    overflow: auto !important;
-    z-index: 100 !important;
-  }
+  /* 子代理下拉在这里也**不接管**（理由见文件上半部分同名注释）：宿主是
+     createPortal + 内联 left/top，本文件的 !important 会把它按到静态位置。 */
 
-  /* 后台任务下拉（.QsffPG_menu）：与子代理下拉同款——视口内全宽面板。 */
+  /* 后台任务下拉（.QsffPG_menu）：视口内全宽面板（宿主是 trigger 内的
+     absolute，top:auto 即静态位置 = 触发器正下方，不受内联样式影响）。 */
   .QsffPG_menu {
     position: fixed !important;
     left: 8px !important;

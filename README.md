@@ -9,9 +9,9 @@
 | # | 改动 | 实现位置 | 官方机制 |
 |---|---|---|---|
 | 1 | viewport：`viewport-fit=cover` + `interactive-widget=resizes-content`（安全区、软键盘收缩内容区而不是覆盖页面） | Node 半 | `ctx.webServer.tapIndex()` 就地改写已有 `<meta name="viewport">` |
-| 2 | 移动端 CSS：抽屉式侧栏、≥44px 触控目标、safe-area 避让、作曲栏重排（权限/模型胶囊移到输入框上方独立成排、发送键固定输入框右下角、模型名顶到权限胶囊前 12px 才省略）、设置面板全屏、各类下拉不出屏 | Node 半 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
+| 2 | 移动端 CSS：抽屉式侧栏（侧栏里的按钮一律沿用宿主尺寸，不放大）、safe-area 避让、作曲栏重排（权限/模型胶囊移到输入框上方独立成排、发送键固定输入框右下角、模型名顶到权限胶囊前 12px 才省略）、设置面板全屏、各类下拉不出屏 | Node 半 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
 | 3 | 启动前 polyfill：`AbortSignal.any`、`crypto.randomUUID`（局域网 HTTP / 老 WebView 缺失时前端起不来） | Node 半 | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
-| 4 | 运行时 DOM 效果：tooltip 气泡重吸附、触摸按下显示/松手销毁气泡、抽屉遮罩点击关闭、"+"号不唤起键盘、子代理下拉吸附、`enterkeyhint=newline`、**软键盘跟随**（visualViewport）、**模型胶囊宽度跟随权限胶囊**（`--dsh-modes-w`） | 浏览器半 | `dsh.client` 客户端插件 + `ctx.effect()` |
+| 4 | 运行时 DOM 效果：tooltip 气泡重吸附、触摸按下显示/松手销毁气泡、抽屉遮罩点击关闭、页头子代理触发器点按补开（宿主只有 hover 路径）、"+"号不唤起键盘、`enterkeyhint=newline`、**软键盘跟随**（visualViewport）、**模型胶囊宽度跟随权限胶囊**（`--dsh-modes-w`） | 浏览器半 | `dsh.client` 客户端插件 + `ctx.effect()` |
 | 5 | PWA manifest `display: fullscreen → standalone` | 可选脚本 | `scripts/manifest-standalone.mjs`（见下文"为什么这一项只能离线做"） |
 
 浏览器半的每条效果都注册在**一个** `ctx.effect()` 里并在 disposer 中回收（rAF / MutationObserver / 监听器 / 定时器 / 被改写的 `html` 样式），插件停止或更新后页面回到未安装状态。
@@ -88,7 +88,8 @@ cordis.patch.yml     组合包 patch 层（insert 一行）
 
 ## 已知限制
 
-- **哈希类名随版本漂移**：`src/mobile-css.ts` 与 `src/client.ts` 里的 `.h8S2Va_menu` / `.uV2eYG_*` / `.VOzbGW_*` / `._7KE1Ra_*` / `._bubble_owhem_8` / `.hHd-Xa_*` / `.Md3f7G_*` 等来自 dsh `0.1.5-rc.1` 的构建产物。上游重新构建后可能改名 → 对应用户只是"效果不生效"（不会报错），需要同步更新这两个文件。稳定的 `data-*` 契约（`data-details-collapsed` / `data-sidebar-collapsed` / `data-shell-overlay` / `data-dsh-kb-open`）优先依赖。
+- **哈希类名随版本漂移**：`src/mobile-css.ts` 与 `src/client.ts` 里的 `.uV2eYG_*` / `.VOzbGW_*` / `._7KE1Ra_*` / `.ZKlsPq_*` / `.EvIC1a_*` / `._list_1nxmc_8` / `._bubble_1nw3t_1` / `.hHd-Xa_*` 等来自 dsh `0.1.5-rc.1` 的构建产物。**版本号没变也会变**——上游重新发布同一个版本就会换哈希（`.h8S2Va_*` → `.ZKlsPq_*`、`.Md3f7G_hint` → `.EvIC1a_hint`、`._bubble_owhem_8` → `._bubble_1nw3t_1`），后果只是"效果不生效"（不会报错），需要同步更新这两个文件。稳定的 `data-*` 契约（`data-sidebar-collapsed` / `data-rightbar-collapsed` / `data-shell-overlay` / `data-dsh-kb-open`）优先依赖。
+- **子代理下拉（`.ZKlsPq_menu`）本模块不接管**：上游已用 `createPortal` + JS 算坐标（视口内 clamp）并写内联 `style`，任何 `!important` 的 `left/right/top` 都会盖掉它。同理 `.QsffPG_menu`（后台任务）仍是 trigger 内的 `absolute;left:0`，所以那条右对齐规则保留。
 - 只对 Web profile 有意义；行挂在别的 profile 上时什么都不做（但会白等 `webServer`，所以别那样装）。
 - 与 [dsh-web-mobile](https://github.com/FunnelCakes/dsh-web-mobile)（`dsh-mobile-nav`，竖屏布局重构）职责相邻但不同：那个做**布局**（抽屉/面板/断点 1024px），本模块做**界面适配**（viewport/polyfill/键盘/触摸/下拉定位）。两者可以同时装；若都改同一元素的定位，以各自 CSS 的先后与 `!important` 为准，冲突时需要人工取舍。
 
