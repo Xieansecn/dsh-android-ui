@@ -1,0 +1,8 @@
+# dsh-android-ui bundle patch —— 把本模块挂载进 profile 树。
+#
+# 官方文档：docs/user/develop/basic/publish.zh.md（组合包 manifest 与 cordis.patch.yml）。
+# 浏览器半不在本文件里声明：它由 package.json 的 `dsh.client` 自动发现
+# （官方文档：docs/subsystems/client-modules.zh.md）。
+- insert:
+    - id: dsh-android-ui
+      name: dsh-android-ui
