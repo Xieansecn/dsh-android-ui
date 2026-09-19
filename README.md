@@ -1,97 +1,135 @@
 # dsh-android-ui
 
-把 [deepseek-harness-android](https://github.com/FunnelCakes/deepseek-harness-android) 里"对 dsh 界面的改动"抽出来，按 **DeepSeek Harness 官方模块（组合包）形态**重写的一个模块。范围是整批 Android/移动端界面适配：viewport 与安全区、移动端 CSS、启动期 polyfill、软键盘跟随、触摸交互与下拉定位。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Android/移动端界面适配模块。以**官方组合包插件**形态实现——不修改任何产品文件，升级 dsh 后自动生效。
 
-原来这些改动是 `apply-frontend.sh` 往 `dsh-web-frontend/dist/index.html` 里**改写文件**注入的 `<style>` / `<script>` + manifest 改动。升级 dsh 会重装 node_modules、覆盖 index.html，每次都要重跑；现在改成插件：宿主侧走官方的 **index 注入表 / 原始 HTML 变换**，浏览器侧走官方的**客户端模块**协议，不再碰任何产品文件。
+从 [deepseek-harness-android](https://github.com/FunnelCakes/deepseek-harness-android) 的 `apply-frontend.sh` 改写而来：原来的"改写 `dist/index.html` 注入 `<style>`/`<script>`"方案升级 dsh 后每次都要重跑，本模块用官方扩展点实现了同样的效果，dsh 自动加载。
 
-## 它做什么
+## 做什么
 
-| # | 改动 | 实现位置 | 官方机制 |
-|---|---|---|---|
-| 1 | viewport：`viewport-fit=cover` + `interactive-widget=resizes-content`（安全区、软键盘收缩内容区而不是覆盖页面） | Node 半 | `ctx.webServer.tapIndex()` 就地改写已有 `<meta name="viewport">` |
-| 2 | 移动端 CSS：抽屉式侧栏（侧栏里的按钮一律沿用宿主尺寸，不放大）、safe-area 避让、作曲栏重排（权限/模型胶囊移到输入框上方独立成排、发送键固定输入框右下角、模型名顶到权限胶囊前 12px 才省略）、设置面板全屏、各类下拉不出屏 | Node 半 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
-| 3 | 启动前 polyfill：`AbortSignal.any`、`crypto.randomUUID`（局域网 HTTP / 老 WebView 缺失时前端起不来） | Node 半 | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
-| 4 | 运行时 DOM 效果：tooltip 气泡重吸附、触摸按下显示/松手销毁气泡、抽屉遮罩点击关闭、页头子代理触发器点按补开（宿主只有 hover 路径）、"+"号不唤起键盘、`enterkeyhint=newline`、**软键盘跟随**（visualViewport）、**模型胶囊宽度跟随权限胶囊**（`--dsh-modes-w`） | 浏览器半 | `dsh.client` 客户端插件 + `ctx.effect()` |
-| 5 | PWA manifest `display: fullscreen → standalone` | 可选脚本 | `scripts/manifest-standalone.mjs`（见下文"为什么这一项只能离线做"） |
+### Node 半（index 注入，渲染期生效）
 
-浏览器半的每条效果都注册在**一个** `ctx.effect()` 里并在 disposer 中回收（rAF / MutationObserver / 监听器 / 定时器 / 被改写的 `html` 样式），插件停止或更新后页面回到未安装状态。
+| 功能 | 机制 |
+|---|---|
+| **viewport** — `viewport-fit=cover`（刘海/挖孔安全区）+ `interactive-widget=resizes-content`（软键盘收缩内容区而不是覆盖页面） | `ctx.webServer.tapIndex()` 就地改写已有的 `<meta name="viewport">`，不新增重复标签 |
+| **移动端 CSS** — 抽屉式侧栏、safe-area 避让、作曲栏重排（权限/模型胶囊移至输入框上方、发送键固定右下角、模型名顶到权限胶囊前才省略）、设置面板全屏、各类下拉不出屏 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
+| **启动前 polyfill** — `AbortSignal.any`、`crypto.randomUUID`（老 WebView / 非安全上下文缺失时前端起不来） | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
 
-效果**不在首屏安装**：`apply()` 只挂一个 `load` 钩子，真正的安装推迟到 `load` 之后的空闲帧（`installWhenIdle`），突变驱动的工作按帧收敛（`installPerFrame`）。dsh 启动时会同时唤醒所有客户端插件，本模块把首屏那段主线程让出去——模拟 2000 节点启动：同步装要付 800 次 MutationObserver 回调 / 603 次 `querySelector` / ~40ms，延时装首屏 0 次，装上后同一批突变只 28 次查询。
+### 浏览器半（运行时 DOM 效果，跟随活 DOM 反复执行）
+
+| 功能 | 说明 |
+|---|---|
+| tooltip 气泡重吸附 | 侧栏开合/滚动后贴着锚点重新定位，超出视口收回 |
+| 触摸交互 | 按下显示气泡、松手销毁；抽屉遮罩点击关闭 |
+| 子代理触发器点按兜底 | 宿主只有 hover 路径，触摸端点第二下打不开——补发 `ArrowDown` 走宿主键盘路径 |
+| "+" 号不唤起键盘 | 捕获阶段拦下 `mousedown`，避免 React 根 refocus 拉起软键盘 |
+| `enterkeyhint=newline` | 安卓输入法回车键显示"换行"（配套 `setup.sh` 里的按键映射） |
+| 软键盘跟随 | `visualViewport` 收缩时把整页抬到键盘上方，收回时还原 |
+| 模型胶囊宽度跟随权限胶囊 | `ResizeObserver` 量出权限胶囊宽度写进 `--dsh-modes-w`，CSS 用它算出"顶到邻居前 12px 再省略" |
+
+### 可选脚本
+
+| 功能 | 说明 |
+|---|---|
+| PWA manifest `display → standalone` | `scripts/manifest-standalone.mjs`，一次性脚本，详见下方 |
+
+浏览器半全部效果注册在**一个** `ctx.effect()` 中，disposer 逐个回收所有副作用（rAF / MutationObserver / 监听器 / 定时器 / `html` 样式）。效果**不在首屏安装**——`apply()` 只挂一个 `load` 钩子，安装推迟到 load 后空闲帧，突变驱动的工作按帧收敛。
 
 ## 安装
 
 ```sh
-# 1) 装进 profile（pnpm 链接）——把 <path> 换成本目录绝对路径
+# 1) 装进 profile（link 指向本目录）
 dsh plugin --profile web add link:/path/to/dsh-android-ui
 
-# 2) 先只验证层组合，不启动
+# 2) 验证层组合
 dsh --profile web --dump-config      # 应出现一行 "# == dsh-android-ui"
 
-# 3) 重启 web 生效
+# 3) 重启生效
 bash ~/dsh/restart_dsh_now.sh
 ```
 
-卸载：`dsh plugin --profile web remove dsh-android-ui`。
+卸载：`dsh plugin --profile web remove dsh-android-ui`
 
 可选（PWA 键盘行为，一次性）：
 
 ```sh
-node scripts/manifest-standalone.mjs           # dry-run，打印目标与将做的改动
-node scripts/manifest-standalone.mjs --write   # 写入；PWA 需重新安装后生效
+node scripts/manifest-standalone.mjs           # dry-run，查看目标与改动
+node scripts/manifest-standalone.mjs --write   # 写入，PWA 需重新安装后生效
 ```
 
 ## 开发
 
 ```sh
-npm install          # 只装 esbuild（唯一 devDependency）
-npm run build        # src/*.ts -> lib/index.js（Node ESM）+ lib/client.js（浏览器 IIFE）
-npm test             # 离线冒烟：13 项，不需要启动 dsh
-npm run check        # build + test
+npm install          # 唯一 devDependency：esbuild
+npm run build        # src/*.ts → lib/index.js (ESM) + lib/client.js (IIFE)
+npm test             # 离线冒烟 16 项，不需要启动 dsh
+npm run check        # build + test（改 src/ 后必跑）
 ```
 
-`npm test` 做的是真验证，不是形状检查：
+`lib/` 目录已提交——客户端 bundle 必须在安装前就构建好（git 安装不会跑 build）。`npm run check` 是唯一的门，没有 lint / formatter / CI。
 
-- 用官方 `renderIndexInjections()` 渲染**真实 index.html**，断言 CSS 与 polyfill 落进 `<head>`、polyfill 早于应用 module 脚本；
-- 在 `node:vm` 里**真跑**注入的 polyfill：`AbortSignal.any` 传播 abort、`randomUUID` 产出 RFC 4122 v4、已有实现不被覆盖；
-- 在 `node:vm` 里按 `window.__ModuleLoader__` 协议**装载** `lib/client.js`：插件导出合法、`apply()` 装上全部效果、disposer 后 observer/监听器/`html` 样式全部还原；
-- 用官方 `loadOverlayPatches()` 解析 `cordis.patch.yml`，断言组合包层能解析出正确的 `insert` 行；
-- 静态断言作曲栏版式的尺寸契约：胶囊带预留高度 ≥ 胶囊 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、旧的重叠 hack 已删——CSS 是文本注入，离线只能到这一步，真机版式按 AGENTS.md 检查点过。
+### 测试覆盖
 
-未在 CI/本机自动化的最后一步是"装进 profile 后真实打开页面"（会重启正在使用的 dsh web），请自行执行上面安装章节的 1~3 步并对照下面的检查点。
+`npm test` 不是形状检查，是真验证：
+
+- 用**官方 `renderIndexInjections()`** 渲染真实 index.html，断言 CSS/脚本落进 `<head>`、polyfill 早于应用 module 脚本
+- 在 **`node:vm` 里真跑** polyfill：`AbortSignal.any` 传播 abort、`randomUUID` 产出 v4、已有实现不被覆盖
+- 在 **`node:vm` 里按 `__ModuleLoader__` 协议装载**浏览器半：导出合法、`apply()` 装上效果、disposer 后所有 DOM 状态还原
+- 用**官方 `loadOverlayPatches()`** 解析 `cordis.patch.yml`，断言组合包层正确
+- **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框三组等式、旧重叠 hack 已删
+- **宿主类名核对**：已过时的哈希类名（`h8S2Va` / `Md3f7G` 等）不许出现
 
 ## 目录
 
 ```
 src/index.ts         Node 半：index 注入行 + viewport tap
-src/client.ts        浏览器半：运行时 DOM 效果（含清理）
-src/mobile-css.ts    移动端 CSS 文本
-src/polyfills.ts     启动前 polyfill 脚本文本
+src/client.ts        浏览器半：运行时 DOM 效果（含完整卸载）
+src/mobile-css.ts    移动端 CSS（模板字符串，≤480px 媒体查询为主）
+src/polyfills.ts     启动前 polyfill（AbortSignal.any + crypto.randomUUID）
 lib/                 构建产物（已提交，消费者无需构建）
-scripts/             可选的 manifest 一次性脚本
-test/smoke.mjs       离线冒烟测试
-cordis.patch.yml     组合包 patch 层（insert 一行）
+scripts/             可选的 PWA manifest 一次性脚本
+test/smoke.mjs       离线冒烟测试（16 项）
+build.mjs            esbuild 构建脚本
+cordis.patch.yml     组合包 patch 层（insert 一行挂进 profile）
 ```
+
+## 架构
+
+```
+Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
+┌─────────────────────────┐    ┌──────────────────────────────────┐
+│ ctx.on('index-inject')  │    │ ctx.effect(installWhenIdle(...)) │
+│   → 注入 CSS + polyfill  │    │   → tooltip 重吸附               │
+│ ctx.webServer.tapIndex  │    │   → 触摸交互                      │
+│   → 就地改写 viewport   │    │   → 子代理触发器兜底              │
+└─────────────────────────┘    │   → + 号键盘拦截                  │
+         ↓ 渲染期               │   → enterkeyhint                  │
+    <head> 里同步生效            │   → 软键盘跟随                    │
+                                │   → 模型胶囊宽度                  │
+                                └──────────────────────────────────┘
+                                          ↓ load 后空闲帧
+                                     运行期按需生效
+```
+
+**分界依据是"时机"**：必须在应用 bundle 之前生效的（viewport、polyfill）走 Node 半 index 注入；必须跟随活 DOM 反复跑的（气泡定位、键盘跟随）走浏览器半 `ctx.effect`。
 
 ## 官方文档依据
 
 - [第一个插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/index.zh.md) — `apply(ctx)`、`inject`、`ctx.effect` 自动清理
 - [打包与安装插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.zh.md) — `dsh.bundle.patch`、`cordis.patch.yml`、profile 层顺序
-- [Client 模块](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/client-modules.zh.md) — `dsh.client.platform: "web"`、`exports["./client"]`、`window.__DSH_BOOT__`、bootstrap 脚本先于 Vite entry
+- [Client 模块](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/client-modules.zh.md) — `dsh.client.platform: "web"`、`exports["./client"]`、bootstrap 脚本先于 Vite entry
 - [扩展插件形态 cookbook](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/extension-cookbook.md) — 特性 → 扩展点对照
 
-注入行类型（`global` / `script` / `script-src` / `script-preload` / `style` / `html`）与 `tapIndex` 的"逃生口"定位，取自 `@deepseek-ai/dsh-host-webserver` 的 `renderIndexInjections` / `WebServer#tapIndex`。
+## 不在本模块范围内
 
-## 为什么不把这些也放进模块
-
-- **作曲栏"普通回车=换行，Ctrl/Cmd+Enter=发送"**：这是改 `dsh-client-ui-conversation` 的按键映射（ProseMirror command），官方没有对应扩展点，只能改产品包代码。它仍留在 `deepseek-harness-android/setup.sh`（4d）。本模块的 `enterkeyhint=newline` 与它配套：装了那个补丁时输入法显示"换行"，行为一致。
-- **PWA manifest**：manifest 是浏览器独立 GET 的静态 JSON，运行期插件无法替浏览器换一份用于安装（index 注入与 `tapIndex` 都只作用于 index.html）。所以保留为一次性脚本，逻辑与 `apply-frontend.sh` 第 4 步一致。
+- **作曲栏"普通回车=换行"** — 这是改 `dsh-client-ui-conversation` 的 ProseMirror 按键映射，官方无对应扩展点，留在 `deepseek-harness-android/setup.sh`。本模块的 `enterkeyhint=newline` 与它配套。
+- **PWA manifest** — 浏览器独立 GET 的静态 JSON，运行期插件无法替换。保留为 `scripts/manifest-standalone.mjs` 一次性脚本。
+- **竖屏布局（抽屉/面板/断点）** — 由 [dsh-mobile-nav](https://github.com/FunnelCakes/dsh-web-mobile) 负责，本模块只做界面适配。
 
 ## 已知限制
 
-- **哈希类名随版本漂移**：`src/mobile-css.ts` 与 `src/client.ts` 里的 `.uV2eYG_*` / `.VOzbGW_*` / `._7KE1Ra_*` / `.ZKlsPq_*` / `.EvIC1a_*` / `._list_1nxmc_8` / `._bubble_1nw3t_1` / `.hHd-Xa_*` 等来自 dsh `0.1.5-rc.1` 的构建产物。**版本号没变也会变**——上游重新发布同一个版本就会换哈希（`.h8S2Va_*` → `.ZKlsPq_*`、`.Md3f7G_hint` → `.EvIC1a_hint`、`._bubble_owhem_8` → `._bubble_1nw3t_1`），后果只是"效果不生效"（不会报错），需要同步更新这两个文件。稳定的 `data-*` 契约（`data-sidebar-collapsed` / `data-rightbar-collapsed` / `data-shell-overlay` / `data-dsh-kb-open`）优先依赖。
-- **子代理下拉（`.ZKlsPq_menu`）本模块不接管**：上游已用 `createPortal` + JS 算坐标（视口内 clamp）并写内联 `style`，任何 `!important` 的 `left/right/top` 都会盖掉它。同理 `.QsffPG_menu`（后台任务）仍是 trigger 内的 `absolute;left:0`，所以那条右对齐规则保留。
-- 只对 Web profile 有意义；行挂在别的 profile 上时什么都不做（但会白等 `webServer`，所以别那样装）。
-- 与 [dsh-web-mobile](https://github.com/FunnelCakes/dsh-web-mobile)（`dsh-mobile-nav`，竖屏布局重构）职责相邻但不同：那个做**布局**（抽屉/面板/断点 1024px），本模块做**界面适配**（viewport/polyfill/键盘/触摸/下拉定位）。两者可以同时装；若都改同一元素的定位，以各自 CSS 的先后与 `!important` 为准，冲突时需要人工取舍。
+- **哈希类名随版本漂移** — `src/mobile-css.ts` 和 `src/client.ts` 里的 `.uV2eYG_*` / `.ZKlsPq_*` / `._bubble_1nw3t_1` 等来自 dsh `0.1.5-rc.1` 构建产物。上游重新发布同一版本也会换哈希，后果是"效果静默失效"（不报错）。升级 dsh 后需按 `AGENTS.md` 核对并更新两处常量/CSS。优先依赖 `data-*` 稳定契约。
+- **子代理下拉不接管** — 上游已用 `createPortal` + JS 内联坐标定位，`!important` 会盖掉内联值。
+- **只对 Web profile 有意义** — 挂在别的 profile 上不工作。
 
 ## License
 

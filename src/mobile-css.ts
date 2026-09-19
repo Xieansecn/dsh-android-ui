@@ -394,7 +394,6 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
      > card(pad-top 8 / gap 12 / radius 22) > [scroll(input 36) + row(44)]，
      指标行在 card 下面。逐项收一点留白与字号：
        - 进卡留白 8→6、输入区与工具行间距 12→8；
-       - 输入行 min-height 36→32、行高 24→20、上内边距 4→2；
        - 工具行显式 gap 10（原来靠各控件自带间距，模型胶囊那格是 20，参差）；
        - 指标胶囊 13px→12px，一行装得下、少一处省略号；
        - 底部留白 4→2，seat 10→8（真机仍取 safe-area）。
@@ -406,22 +405,21 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   .uV2eYG_scroll,
   .uV2eYG_grow,
   .uV2eYG_input {
-    min-height: 32px !important;
+    min-height: 36px !important;
   }
   .uV2eYG_input {
-    padding-top: 2px !important;
+    padding-top: 4px !important;
     padding-left: 8px !important; /* 与下面那排控件的左缘对齐（原来 14px，比 ＋ 号右 6px） */
-    line-height: 20px !important;
+    line-height: 24px !important;
   }
   /* 提示词不是输入框的后代，而是 .uV2eYG_grow（position:relative）里与它平级的
      绝对定位节点，宿主按**自己**的输入框几何写死 inset:4px 8px auto 14px。上面一改
-     内边距/行高，两边就各自为政：左偏 6px（14→8），竖直再偏 2px（上内边距 4→2）
-     加行高 24→20 的半行距差。把同一组值补给提示词，两者重新重合。改上面那三条时
+     内边距/行高，两边就各自为政。把同一组值补给提示词，两者重新重合。改上面那三条时
      必须同步改这里（冒烟测试盯着）。 */
   .uV2eYG_placeholder {
-    top: 2px !important;
+    top: 4px !important;
     left: 8px !important;
-    line-height: 20px !important;
+    line-height: 24px !important;
   }
   .wSkVaW_composerSeat [class*="_pill"] {
     font-size: 12px !important;
