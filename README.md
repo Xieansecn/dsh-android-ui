@@ -20,6 +20,7 @@
 |---|---|
 | tooltip 气泡重吸附 | 侧栏开合/滚动后贴着锚点重新定位，超出视口收回 |
 | 触摸交互 | 按下显示气泡、松手销毁；抽屉遮罩点击关闭 |
+| 悬浮侧栏开关 | ≤480px 折叠态下侧栏脱离网格流，入口由左上角这颗浮层按钮承担；图标克隆宿主自己的面板图标（不是品牌鱼 logo），点击转发给宿主开关 |
 | 子代理触发器点按兜底 | 宿主只有 hover 路径，触摸端点第二下打不开——补发 `ArrowDown` 走宿主键盘路径 |
 | "+" 号不唤起键盘 | 捕获阶段拦下 `mousedown`，避免 React 根 refocus 拉起软键盘 |
 | `enterkeyhint=newline` | 安卓输入法回车键显示"换行"（配套 `setup.sh` 里的按键映射） |
@@ -61,7 +62,7 @@ node scripts/manifest-standalone.mjs --write   # 写入，PWA 需重新安装后
 ```sh
 npm install          # 唯一 devDependency：esbuild
 npm run build        # src/*.ts → lib/index.js (ESM) + lib/client.js (IIFE)
-npm test             # 离线冒烟 16 项，不需要启动 dsh
+npm test             # 离线冒烟 17 项，不需要启动 dsh
 npm run check        # build + test（改 src/ 后必跑）
 ```
 
@@ -76,6 +77,7 @@ npm run check        # build + test（改 src/ 后必跑）
 - 在 **`node:vm` 里按 `__ModuleLoader__` 协议装载**浏览器半：导出合法、`apply()` 装上效果、disposer 后所有 DOM 状态还原
 - 用**官方 `loadOverlayPatches()`** 解析 `cordis.patch.yml`，断言组合包层正确
 - **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框三组等式、旧重叠 hack 已删
+- **静态断言悬浮开关**：克隆的是面板图标而不是品牌标记（`querySelector('svg')` 不许出现）、按浮层按钮 token 画（28×28、无描边）、`top` 与宿主展开态侧栏开关重合（`env(safe-area-inset-top) + 22px`）、`:active` 与 `:hover` 同列
 - **宿主类名核对**：已过时的哈希类名（`h8S2Va` / `Md3f7G` 等）不许出现
 
 ## 目录
@@ -87,7 +89,7 @@ src/mobile-css.ts    移动端 CSS（模板字符串，≤480px 媒体查询为�
 src/polyfills.ts     启动前 polyfill（AbortSignal.any + crypto.randomUUID）
 lib/                 构建产物（已提交，消费者无需构建）
 scripts/             可选的 PWA manifest 一次性脚本
-test/smoke.mjs       离线冒烟测试（16 项）
+test/smoke.mjs       离线冒烟测试（17 项）
 build.mjs            esbuild 构建脚本
 cordis.patch.yml     组合包 patch 层（insert 一行挂进 profile）
 ```
@@ -104,6 +106,7 @@ Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
 └─────────────────────────┘    │   → + 号键盘拦截                  │
          ↓ 渲染期               │   → enterkeyhint                  │
     <head> 里同步生效            │   → 软键盘跟随                    │
+                                │   → 悬浮侧栏开关                  │
                                 │   → 模型胶囊宽度                  │
                                 └──────────────────────────────────┘
                                           ↓ load 后空闲帧
@@ -123,7 +126,7 @@ Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
 
 - **作曲栏"普通回车=换行"** — 这是改 `dsh-client-ui-conversation` 的 ProseMirror 按键映射，官方无对应扩展点，留在 `deepseek-harness-android/setup.sh`。本模块的 `enterkeyhint=newline` 与它配套。
 - **PWA manifest** — 浏览器独立 GET 的静态 JSON，运行期插件无法替换。保留为 `scripts/manifest-standalone.mjs` 一次性脚本。
-- **竖屏布局（抽屉/面板/断点）** — 由 [dsh-mobile-nav](https://github.com/FunnelCakes/dsh-web-mobile) 负责，本模块只做界面适配。
+- **竖屏布局（抽屉/面板/断点）** — 借鉴 [dsh-mobile-nav](https://github.com/FunnelCakes/dsh-web-mobile) 等其他模块，本模块只做界面适配。
 
 ## 已知限制
 

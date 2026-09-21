@@ -35,6 +35,13 @@ const FRAME = '[class*="_frame"]'
 const COMPOSER_INPUT = '.uV2eYG_input'
 const COMPOSER_ADD = '.uV2eYG_add'
 const SIDEBAR_TOGGLE = '.hHd-Xa_toggle'
+/** 宿主侧栏 toggle 里的"打开侧边栏"面板图标。**不能取 toggle 里的第一个 svg**：
+ *  折叠态（wide=false）排在它前面的是 sidebar.brand.mark 槽位的品牌标记（鱼 logo），
+ *  克隆那个就成了"鱼按钮"。宿主换哈希时按 Pitfalls 一起改本常量。 */
+const SIDEBAR_PANEL_ICON = '.hHd-Xa_panelIcon'
+/** 会话页头右上角那颗"打开右侧边栏"按钮：同一个 IconPanelLeftOutline16 组件，
+ *  宿主用 data 属性暴露（不是哈希类名）。面板图标取不到时拿它兜底。 */
+const RIGHT_EXPAND_BUTTON = '[data-sidebar-right-expand]'
 /** 会话行 / 行内交互控件（同上）。会话行本身是 div[role=treeitem]，行内的按钮才是控件。 */
 const SESSION_ROW = '[class*="_sessionRow"]'
 const ROW_CONTROL = 'button, [role="button"], input, [class*="_rowActions"]'
@@ -366,9 +373,10 @@ export interface ClientCtx {
 }
 
 /** 9) 悬浮侧栏开关：≤480px 折叠态下侧栏整列脱离网格流（不再永久占 56px，
- *  390px 上是 14% 宽度），入口由这颗按钮承担。图标直接克隆宿主折叠态开关里的
- *  svg，省一份手写图标、且自动跟随主题；点击只是转发给宿主自己的开关按钮，
- *  不自己改宿主状态。展开态由抽屉自带的收起按钮负责，这里置灰隐藏。 */
+ *  390px 上是 14% 宽度），入口由这颗按钮承担。图标克隆宿主自己的**面板图标**：
+ *  与页头右上角那颗"打开右侧边栏"按钮同一个图形组件，自动跟随主题色，且不会
+ *  变成品牌鱼 logo（用户明确要求这里是图标按钮）；点击只是转发给宿主自己的开关
+ *  按钮，不自己改宿主状态。展开态由抽屉自带的收起按钮负责，这里置灰隐藏。 */
 function installSidebarFab(): Disposer {
   /* 缺 matchMedia 的环境（极少见，但插件不该因为它整半挂掉——apply 里任何一个
      安装器抛错都会带走其余全部效果）当作非移动端处理。 */
@@ -402,9 +410,15 @@ function installSidebarFab(): Disposer {
       return
     }
     if (fab.childNodes.length === 0) {
-      const icon = toggle.querySelector('svg')
+      /* 面板图标在折叠态只是被宿主 CSS `display:none`，元素仍在 DOM 里；取不到就退到
+         右上角那颗同款按钮（同一个 IconPanelLeftOutline16）。克隆后剥掉宿主类名：
+         既不让 `scaleX(-1)`（右上角那颗是镜像过的）和 `display:none` 跟着过来，
+         尺寸也完全由本文件的 CSS 决定。 */
+      const icon = toggle.querySelector(SIDEBAR_PANEL_ICON) || document.querySelector(`${RIGHT_EXPAND_BUTTON} svg`)
       if (!icon) return /* 图标还没渲染，等下一次 sync */
-      fab.append(icon.cloneNode(true))
+      const clone = icon.cloneNode(true)
+      if (clone && typeof clone.removeAttribute === 'function') clone.removeAttribute('class')
+      fab.append(clone)
     }
     fab.setAttribute(FAB_VISIBLE_ATTR, '')
   }

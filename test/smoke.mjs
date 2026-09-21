@@ -149,7 +149,7 @@ check('移动端 CSS 不改侧栏会话行的尺寸', () => {
 })
 
 // 会话页头：让位给悬浮开关的左边距只许出现在 header 上（其他行各自再加偏移就
-// 对不齐了），且必须够避开关闭态的悬浮开关（38px 圆钮 + 10px 左距 + 8px 间隔）。
+// 对不齐了），且必须够避开关闭态的悬浮开关（28px 按钮 + 8px 左距 + 8px 间隔）。
 check('会话页头：各行共用同一条左基线，且避开悬浮开关', () => {
   const css = host.injectionRows().find((row) => row.kind === 'style').text
   const header = /\.wSkVaW_header\s*\{([^}]*)\}/.exec(css)
@@ -159,11 +159,11 @@ check('会话页头：各行共用同一条左基线，且避开悬浮开关', (
   assert.ok(shorthand, '页头应有 padding 简写')
   const parts = shorthand[1].trim().split(/\s+/)
   const left = parts.length === 4 ? parts[3] : parts.length === 2 ? parts[1] : parts[0]
-  assert.equal(left, '56px', '页头左内边距必须让开悬浮开关（38 + 10 + 8 = 56px）')
+  assert.equal(left, '44px', '页头左内边距必须让开悬浮开关（28 + 8 + 8 = 44px）')
   assert.ok(/padding-left:\s*0/.test(tabs[1]), '标签页左内边距归零，才与标题共用同一条基线')
   assert.ok(
     !/\.wSkVaW_titleRow\s*\{[^}]*padding-left/.test(css),
-    '标题行不许再自己加左内边距（会在 56px 基线上再加一段）',
+    '标题行不许再自己加左内边距（会在 44px 基线上再加一段）',
   )
   // 预设胶囊（当前会话用的 preset）必须与标题同排：曾经写死 flex-basis:100% 让它
   // "独占一行"，结果标题与 preset 永远分两排、中间空一整行。
@@ -191,6 +191,49 @@ check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
   // left/right/top !important 会盖掉内联样式（!important 赢过内联）→ 菜单跑偏。
   const css = texts[0]
   assert.ok(!/\.ZKlsPq_menu\s*[,{]/.test(css), '子代理下拉不能有 CSS 覆盖（会盖掉宿主内联坐标）')
+})
+
+// 悬浮开关的图标来源与尺寸：折叠态下 toggle 里的第一个 svg 是 sidebar.brand.mark
+// 槽位的品牌标记（鱼 logo），克隆它就成了"左上角一个鱼按钮"（用户实测反馈）。
+// 要的是宿主自己的面板图标；外观用应用自己的浮层按钮 token（悬在内容上，纯图标
+// 无底色会被读成"飘着的图标"而不是按钮），尺寸与页头右上角那颗 ExpandButton 一致。
+check('悬浮开关：克隆面板图标（非品牌标记）、按浮层 token 画、尺寸与右上角那颗一致', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const bundle = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
+  assert.ok(bundle.includes('.hHd-Xa_panelIcon'), '应从 toggle 里取 .hHd-Xa_panelIcon')
+  assert.ok(bundle.includes('[data-sidebar-right-expand]'), '面板图标取不到时要能退到右上角那颗同款按钮')
+  assert.ok(!/querySelector\(\s*['"]svg['"]\s*\)/.test(bundle), '不能取 toggle 里第一个 svg（那是品牌标记）')
+  const fab = /\[data-dsh-nav-fab\]\s*\{([^}]*)\}/.exec(css)
+  assert.ok(fab, '应有 [data-dsh-nav-fab] 基态规则')
+  for (const decl of [
+    'width: 28px',
+    'height: 28px',
+    'border: none',
+    'background: var(--dsw-alias-button-floating-fill',
+    'box-shadow: 0 2px 12px rgba(0, 0, 0, .18)',
+  ]) {
+    assert.ok(fab[1].includes(decl), `悬浮开关应像宿主浮层按钮那样有实体，缺少 ${decl}`)
+  }
+  assert.ok(
+    !fab[1].includes('--dsw-elevation-stroke-color'),
+    '描边应已换成阴影：不许再套 elevation token 里那条 0 0 0 .5px 描边',
+  )
+  assert.ok(
+    /\[data-dsh-nav-fab\]:hover,\s*\[data-dsh-nav-fab\]:active/.test(css),
+    '触摸端没有 hover，`:active` 必须一起给（点下去有反馈才像按钮）',
+  )
+  // 纵向位置与宿主展开态侧栏开关重合：抽屉里那颗 28px 开关上沿 22（列内边距 6 +
+  // 行内边距 8 + 居中 8）、中线 36；本按钮同尺寸同中线 → 上沿也是 22。
+  assert.ok(
+    /top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ 22px\)/.test(fab[1]),
+    '悬浮开关的纵向位置必须与宿主展开态侧栏开关重合（28px、上沿 22px）',
+  )
+  const glyph = /\[data-dsh-nav-fab\]\s*svg\s*\{([^}]*)\}/.exec(css)
+  assert.ok(glyph, '应有 [data-dsh-nav-fab] svg 字形规则')
+  assert.ok(
+    /width:\s*15px/.test(glyph[1]) && /height:\s*15px/.test(glyph[1]),
+    '字形 15px，与右上角那颗 ExpandButton 一致',
+  )
 })
 
 check('viewport 内容含 viewport-fit=cover 与 interactive-widget', () => {
@@ -457,11 +500,39 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   modesStub.isConnected = true
   modesStub.width = 120
   modesStub.getBoundingClientRect = () => ({ width: modesStub.width })
+  // 悬浮开关桩：折叠态下 toggle 里的**第一个** svg 是 sidebar.brand.mark 的品牌标记
+  // （鱼 logo），面板图标排在它后面 —— 两个都放进来，断言被克隆的是面板图标那个。
+  let drawerOpened = 0
+  const brandMarkStub = makeNode('svg')
+  brandMarkStub.cloneNode = () => ({ mark: 'brand' })
+  const panelIconStub = makeNode('svg')
+  panelIconStub.cloneNode = () => ({
+    mark: 'panel',
+    removed: [],
+    removeAttribute(name) {
+      this.removed.push(name)
+    },
+  })
+  const toggleStub = makeNode('button')
+  toggleStub.isConnected = true
+  toggleStub.click = () => {
+    drawerOpened += 1
+  }
+  toggleStub.querySelector = (sel) => {
+    if (sel === '.hHd-Xa_panelIcon') return panelIconStub
+    if (sel === 'svg') return brandMarkStub
+    return null
+  }
+  const frameStub = makeNode('div')
+  frameStub.isConnected = true
+  frameStub.setAttribute('data-sidebar-collapsed', '')
   const documentStub = {
     documentElement: htmlElement,
     querySelector: (sel) => {
       if (sel === '[data-composer-card]') return cardStub
       if (sel === '.uV2eYG_modes') return modesStub
+      if (sel === '.hHd-Xa_toggle') return toggleStub
+      if (sel === '[class*="_frame"]') return frameStub
       return null
     },
     querySelectorAll: () => [],
@@ -501,6 +572,8 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
     },
     setTimeout: () => 0,
     clearTimeout: () => {},
+    // 悬浮开关只在 ≤480px 且侧栏折叠时出现（matches=true 代表"就是这种手机状态"）。
+    matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
     getComputedStyle: () => ({
       display: 'block',
       visibility: 'visible',
@@ -604,6 +677,15 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.ok(observers.length >= 1, 'load 后应安装 MutationObserver')
   assert.ok(listeners.size >= 3, 'load 后应安装 DOM/visualViewport 监听')
   assert.equal(documentStub.body.childNodes.length, 1, 'load 后应注入悬浮侧栏开关按钮')
+  // 图标必须来自面板图标（与页头右上角那颗同款），不是品牌鱼 logo；克隆时剥掉宿主
+  // 类名（右上角那颗是 scaleX(-1) 镜像版，留着会让字形翻向）。点击转发给宿主开关。
+  const fabStub = documentStub.body.childNodes[0]
+  assert.equal(fabStub.childNodes.length, 1, '悬浮开关应带上图标')
+  assert.equal(fabStub.childNodes[0].mark, 'panel', '克隆的必须是面板图标，不是品牌标记')
+  assert.equal(fabStub.childNodes[0].removed.join(','), 'class', '克隆后应剥掉宿主类名')
+  assert.ok(fabStub.hasAttribute('data-dsh-nav-fab-visible'), '折叠态下按钮应置为可见')
+  fabStub.listeners.get('click')?.()
+  assert.equal(drawerOpened, 1, '点悬浮开关应转发给宿主自己的 toggle')
   // 模型胶囊宽度跟随权限胶囊：装上先量一次写进卡片变量，尺寸变化后再量（CSS 的
   // max-width 用这个变量把模型标签顶到权限胶囊前 12px 再省略）。
   assert.equal(resizeObservers.length, 1, '应挂一个 ResizeObserver 量权限胶囊宽度')
