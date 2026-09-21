@@ -64,7 +64,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
 - **悬浮开关的图标别克隆"toggle 里的第一个 svg"**：折叠态下（`wide = !collapsed || !settled` 为 false）宿主 toggle 里排在最前的是 `sidebar.brand.mark` 槽位的品牌标记（`FishLogo`），克隆它左上角就变成一个"鱼按钮"（用户实测反馈）。要的是 `.hHd-Xa_panelIcon`——即 `IconPanelLeftOutline16`，与页头右上角那颗 `ExpandButton`（`[data-sidebar-right-expand]`，`dsh-client-ui-sidebar-right` 的 `conversation.session.header.corner` 座席）是同一个图形组件；取不到时退到那颗按钮的 svg 兜底。克隆后剥掉宿主类名（理由见 `src/client.ts` 里那段注释），尺寸由本文件 CSS 给。
 - **职责边界：Android/移动端界面适配，不做布局重构**。竖屏布局（抽屉/面板/断点）借鉴其他模块（`dsh-mobile-nav`）。本模块覆盖 viewport/安全区、启动期 polyfill、软键盘跟随、触摸交互、`enterkeyhint`，以及下拉与面板的"不出屏"定位——都属于同一批界面适配，别单独拆包。两边都改同一元素的定位时，以 CSS 顺序与 `!important` 为准，属于需要人工取舍的冲突，不要靠加 `!important` 硬压。
 - **抽屉滑动必须走 transform，列内的 fixed 弹出层要 `:has` 兜底**：收起/展开用 `transform: translateX(-100%)` ⇄ `none` + `transition: transform var(--dsh-android-ui-drawer-ms, 300ms) var(--ds-ease-in-out)`（宿主右栏文件预览 `.P3OORG_panel` 就是这个模式，观感一致）。`left` 是布局属性，动画期间每帧都要重绘那条 280px 宽、带 28px 阴影的整列，真机上一卡一卡的（用户对比后反馈）。代价：transform 会给本列造出包含块，列内 `position:fixed` 弹出层 —— 设置对话框 `.VOzbGW_overlay`、Cordis 控制面板 `.Nqubda_panel` —— 会被夹成 280px（实测 0,0,280,844：导航被裁），所以 `:has(.VOzbGW_overlay, .Nqubda_panel)` 命中时退回"无 transform + left 隐藏"。这两个弹出层都渲染在侧栏座席（`sidebar.settings` / `sidebar.footer.action`）里、没有 portal，少了任何一个都要把类名补进 `:has`。
-- **宿主给 `.uV2eYG_row` 的 `container-type: inline-size` 是包含块**：它附带 layout containment，使**行盒**成为绝对/固定后代的包含块。作曲栏两颗胶囊要悬到卡片上方（`bottom:100%`），就必须在本文件把行盒改成 `container-type: normal`（包含块回到 `position:relative` 的卡片）；删掉这条，胶囊会静默落回输入框上——正是 2026-09 那版要拆掉的旧形态。代价：宿主那两条 `@container` 查询不再命中（权限/模型标签本来就被本文件强制显示，模型触发器宽度上限退化成 45vw，仍被胶囊自身的 max-width 收住），卡片内的 `.JObwrW_panel`（position:fixed）改以视口为锚（原 CSS 的意图）。
+- **宿主给 `.uV2eYG_row` 的 `container-type: inline-size` 是包含块**：它附带 layout containment，使**行盒**成为绝对/固定后代的包含块。作曲栏两颗胶囊要悬到卡片上方（`bottom:100%`，包含块必须是卡片），就必须在本文件把行盒改成 `container-type: normal`（包含块回到 `position:relative` 的卡片）；删掉这条，胶囊会静默落回输入框上——正是 2026-09 那版要拆掉的旧形态。代价：宿主那两条 `@container` 查询不再命中（权限/模型标签本来就被本文件强制显示，模型触发器宽度上限退化成 45vw，仍被胶囊自身的 max-width 收住），卡片内的 `.JObwrW_panel`（position:fixed）改以视口为锚（原 CSS 的意图）。
 - **光标与提示词是两套几何，必须手动同步**：提示词 `.uV2eYG_placeholder` 不是输入框的后代，而是 `.uV2eYG_grow`（`position:relative`）里与它**平级**的绝对定位节点，宿主按自己的输入框内边距写死 `inset:4px 8px auto 14px`。本文件把 `.uV2eYG_input` 改成更紧凑的 `padding-top/left/line-height`，就必须把同一组值补给提示词，否则光标与提示词错位（冒烟测试里有一条等式盯着这三个值）。
 - **`enterkeyhint=newline` 与"普通回车=换行"是配套的**：后者是改产品包 `dsh-client-ui-conversation` 的按键映射（官方无扩展点），留在 `deepseek-harness-android/setup.sh` 4d。只装本模块时输入法会显示"换行"但回车仍然是发送——这是已知的、文档里写明的不一致，不要"顺手"在浏览器半里用 DOM 合成按键去修（ProseMirror 编辑器的合成事件不可靠）。
 - **PWA manifest 只能离线改**：浏览器独立 GET 那份 JSON，运行期插件改不了，`tapIndex` 也只作用于 index.html。`scripts/manifest-standalone.mjs` 是一次性脚本，默认 dry-run。
@@ -73,7 +73,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
 
 ## Testing & QA
 
-- `npm test` 覆盖：注入行形状、移动端 CSS 的作曲栏版式尺寸契约（胶囊带预留 ≥ 胶囊 28px + 间隔、胶囊 `flex-shrink: 0` 不许折行顶高、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框的 `top/left/line-height` 三点等式、旧的重叠 hack 已删）、viewport 就地改写（含幂等）、用官方 `renderIndexInjections()` 渲染真实 index.html 的顺序断言、VM 里真跑 polyfill、VM 里按协议装载浏览器半并断言完整卸载、官方 `loadOverlayPatches()` 解析本包 patch 层、包契约（`dsh.bundle`/`dsh.client`/`exports` 指向的文件都存在），以及浏览器半的**安装时机**（load 前不装任何 observer/按钮、load 后才装上、load 前卸载后迟到的 load 不能把插件唤醒）。
+- `npm test` 覆盖：注入行形状、移动端 CSS 的作曲栏版式尺寸契约（胶囊带预留 ≥ 胶囊 28px + 间隔、胶囊 `flex-shrink: 0` 不许折行顶高、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框的 `top/left/line-height` 三点等式、旧的重叠 hack 已删、两颗胶囊与输入框卡片同色且描边用 box-shadow 画 0.5px 细线）、viewport 就地改写（含幂等）、用官方 `renderIndexInjections()` 渲染真实 index.html 的顺序断言、VM 里真跑 polyfill、VM 里按协议装载浏览器半并断言完整卸载、官方 `loadOverlayPatches()` 解析本包 patch 层、包契约（`dsh.bundle`/`dsh.client`/`exports` 指向的文件都存在），以及浏览器半的**安装时机**（load 前不装任何 observer/按钮、load 后才装上、load 前卸载后迟到的 load 不能把插件唤醒）。
 - 还有一条"宿主类名核对"：构建产物里不许再出现已核对过的旧哈希名（`h8S2Va` / `Md3f7G` / `_list_19372_8` / `_bubble_owhem_8`），且移动端 CSS 里不许有 `.ZKlsPq_menu` 规则（会盖掉宿主的内联坐标）。
 - 两条"别乱动"的断言：侧栏会话行不许有 `min-height` 覆盖（尺寸交回宿主），会话页头的左基线只许由 `.wSkVaW_header` 给（44px = 悬浮开关让位），标签页左内边距必须归零，`headerActions` 不许再写 `flex-basis: 100%`（会把 preset 顶到自己一行）。
 - 悬浮开关的图标与外观也是断言项：必须从 toggle 里取 `.hHd-Xa_panelIcon`（取不到退到 `[data-sidebar-right-expand]`）、不许出现 `querySelector('svg')`；CSS 里 [data-dsh-nav-fab] 按浮层按钮 token 画（`button-floating-fill` 底 + 两层 rgba 纯阴影、**不许**套 elevation token 里那条 `0 0 0 .5px` 描边）、尺寸与页头右上角那颗 ExpandButton 一致（28×28、15px 字形）、`top` 必须是 `env(safe-area-inset-top) + 22px`（与宿主展开态侧栏开关同尺寸同上沿），且 `:hover` 必须与 `:active` 同列（触摸端没有 hover）。
@@ -83,7 +83,7 @@ dsh --profile web --dump-config      # 应出现 "# == dsh-android-ui"
 - 真机检查点（装进 profile、重启后，手机 390px 竖屏）：
   1. 地址栏页面无横向滚动，刘海/挖孔不遮内容，底部输入区有 safe-area 留白；
   2. 点作曲栏"+"不弹键盘；输入法回车键显示"换行"；
-  3. 作曲栏版式：权限（可能带"计划"胶囊）/模型两颗胶囊在输入框**上方独立成排**（权限贴左、模型贴右，互不重叠，不压输入框、不压消息区），发送键固定停在输入框**右下角**、不折行；模型名尽量完整——能顶到权限胶囊前 12px 才省略（权限胶囊越窄、模型名显示越多）；320px 窄屏同样成立；
+  3. 作曲栏版式：权限（可能带"计划"胶囊）/模型两颗胶囊在输入框**上方独立成排**（权限贴左、模型贴右，互不重叠，底色与输入框卡片相同、带 0.5px 极细描边，不压输入框、不压消息区），发送键固定停在输入框**右下角**、不折行；模型名尽量完整——能顶到权限胶囊前 12px 才省略（权限胶囊越窄、模型名显示越多）；320px 窄屏同样成立；
   4. 弹出软键盘：作曲栏与整页上移、不被键盘盖住；收起后完全还原；
   5. 侧栏展开是覆盖式抽屉（滑动走合成层，手感与右栏文件预览面板一致），点右侧遮罩空白处能关闭；设置面板全屏，且设置面板开着时抽屉不会把它夹成 280px、Cordis 控制面板同理；
   6. 用量/上下文面板与子代理下拉不超出视口；

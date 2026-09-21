@@ -70,7 +70,7 @@ check('注入行：一条 style + 一条 head script（顺序即渲染顺序）'
 
 // 作曲栏版式的尺寸契约：CSS 是文本注入，离线只能静态断言这两条互相咬合的规则；
 // 真机版式仍要按 AGENTS.md 的"真机检查点"过一遍。
-check('移动端 CSS：胶囊在卡片上方独立成排、发送键不折行', () => {
+check('移动端 CSS：胶囊在卡片上方独立成排（外观同输入框）、发送键不折行', () => {
   const css = host.injectionRows().find((row) => row.kind === 'style').text
   // 旧的"整行上浮 40px + 输入框留白 40px"重叠版式必须已经拆掉。
   assert.ok(!css.includes('margin-top: -40px'), '不应再把工具行负位移压进输入框')
@@ -84,11 +84,29 @@ check('移动端 CSS：胶囊在卡片上方独立成排、发送键不折行', 
   const card = /\.uV2eYG_card:has\([^)]*\)\s*\{([^}]*)\}/.exec(css)
   assert.ok(gap && card, '应能找到胶囊间距与卡片预留高度')
   const reserved = /margin-top:\s*(\d+)px/.exec(card[1])
-  assert.ok(reserved, '卡片应预留胶囊带')
+  assert.ok(reserved, '卡片应预留胶囊带（真占位，胶囊才不压输入框）')
   // 胶囊 28px 是宿主原值（本文件不覆盖），预留高度必须容得下它 + 间隔。
   assert.ok(
     Number(reserved[1]) >= 28 + Number(gap[1]),
     `卡片预留 ${reserved[1]}px 容不下 28px 胶囊 + ${gap[1]}px 间隔`,
+  )
+  // 两颗胶囊的观感：照输入框卡片那套画 —— 底色 = 卡片的 --dsw-specific-input-major，
+  // 0.5px 极细描边 = 卡片自己 stroke 的颜色 --dsw-alias-border-l2，外加两层极淡投影。
+  // 描边必须用 box-shadow 画：宿主那两颗触发器是 content-box（模型触发器实测
+  // height:28px、border:none），真 border 会把胶囊撑到 29px、顶破上面的预留带。
+  const pill = /\.uV2eYG_row \.uV2eYG_modes button\[class\*="_trigger"\],[\s\S]*?\._7KE1Ra_trigger\s*\{([^}]*)\}/.exec(css)
+  assert.ok(pill, '应能找到权限/模型两颗胶囊的外观规则')
+  assert.ok(
+    pill[1].includes('background: var(--dsw-specific-input-major'),
+    '胶囊底色必须与输入框卡片同色（--dsw-specific-input-major）',
+  )
+  assert.ok(
+    /box-shadow:\s*0 0 0 \.5px var\(--dsw-alias-border-l2/.test(pill[1]),
+    '胶囊要有 0.5px 极细描边（与卡片 stroke 同色），由 box-shadow 画、不占布局',
+  )
+  assert.ok(
+    !/\bborder:\s*[^;]*solid/.test(pill[1]),
+    '描边不许写成真 border（content-box 下会把 28px 胶囊撑成 29px）',
   )
   const shrink = /\.uV2eYG_modes > \*\s*\{([^}]*)\}/.exec(css)
   assert.ok(
@@ -111,6 +129,10 @@ check('移动端 CSS：胶囊在卡片上方独立成排、发送键不折行', 
   const model = /\._7KE1Ra_root\s*\{([^}]*var\(--dsh-modes-w[^}]*)\}/.exec(css)
   assert.ok(model, '应能找到吃 --dsh-modes-w 的模型胶囊规则')
   assert.ok(model[1].includes('50%'), '模型胶囊宽度上限应带不依赖变量的兜底（一半宽度）')
+  assert.ok(
+    /- 12px\)/.test(model[1]),
+    '模型胶囊上限要扣掉与权限胶囊之间的 12px 间隔，否则会顶上去',
+  )
   // 光标位置由输入框自己的 padding/line-height 决定，而提示词是宿主按它原生几何
   // （inset:4px 8px auto 14px）绝对定位的**平级**节点：本文件一改输入框，两边就错位。
   // 这两条规则的值必须始终相等（这是"光标与提示词对齐"的唯一保证）。

@@ -11,7 +11,7 @@
 | 功能 | 机制 |
 |---|---|
 | **viewport** — `viewport-fit=cover`（刘海/挖孔安全区）+ `interactive-widget=resizes-content`（软键盘收缩内容区而不是覆盖页面） | `ctx.webServer.tapIndex()` 就地改写已有的 `<meta name="viewport">`，不新增重复标签 |
-| **移动端 CSS** — 抽屉式侧栏（合成层 `transform` 滑动，与宿主右栏文件预览面板同款时长/缓动）、safe-area 避让、作曲栏重排（权限/模型胶囊移至输入框上方、发送键固定右下角、模型名顶到权限胶囊前才省略）、设置面板全屏、各类下拉不出屏 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
+| **移动端 CSS** — 抽屉式侧栏（合成层 `transform` 滑动，与宿主右栏文件预览面板同款时长/缓动）、safe-area 避让、作曲栏重排（权限/模型胶囊悬在输入框上方、与卡片同色同描边、发送键固定右下角、模型名顶到权限胶囊前才省略）、设置面板全屏、各类下拉不出屏 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
 | **启动前 polyfill** — `AbortSignal.any`、`crypto.randomUUID`（老 WebView / 非安全上下文缺失时前端起不来） | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
 
 ### 浏览器半（运行时 DOM 效果，跟随活 DOM 反复执行）
@@ -76,7 +76,7 @@ npm run check        # build + test（改 src/ 后必跑）
 - 在 **`node:vm` 里真跑** polyfill：`AbortSignal.any` 传播 abort、`randomUUID` 产出 v4、已有实现不被覆盖
 - 在 **`node:vm` 里按 `__ModuleLoader__` 协议装载**浏览器半：导出合法、`apply()` 装上效果、disposer 后所有 DOM 状态还原
 - 用**官方 `loadOverlayPatches()`** 解析 `cordis.patch.yml`，断言组合包层正确
-- **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框三组等式、旧重叠 hack 已删
+- **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框三组等式、旧重叠 hack 已删；两颗胶囊的底色与输入框卡片同色、带 0.5px 极细描边（box-shadow 画，不用 border）
 - **静态断言悬浮开关**：克隆的是面板图标而不是品牌标记（`querySelector('svg')` 不许出现）、按浮层按钮 token 画（28×28、无描边）、`top` 与宿主展开态侧栏开关重合（`env(safe-area-inset-top) + 22px`）、`:active` 与 `:hover` 同列
 - **静态断言抽屉动画**：收起态是 `transform: translateX(-100%)`（不许退回 `left` 偏移）、时长/缓动用宿主的 300ms + `var(--ds-ease-in-out)`，且列内有 `position:fixed` 弹出层（设置对话框 / Cordis 控制面板）时 `:has` 兜底退回 left 隐藏（reduced-motion 里也要一起关）
 - **宿主类名核对**：已过时的哈希类名（`h8S2Va` / `Md3f7G` 等）不许出现
