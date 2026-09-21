@@ -193,6 +193,54 @@ check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
   assert.ok(!/\.ZKlsPq_menu\s*[,{]/.test(css), '子代理下拉不能有 CSS 覆盖（会盖掉宿主内联坐标）')
 })
 
+// 抽屉动画：收起/展开必须走 transform（合成层）而不是 left（布局属性，每帧都要把
+// 这条 280px 宽、带 28px 阴影的列重绘一遍）。宿主自己的横向面板就是这套 ——
+// 右栏文件预览 .P3OORG_panel：收起 translate(100%)、展开 transform:none、
+// transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out)。
+// 例外（必须保留）：列内的 position:fixed 弹出层（设置对话框 .VOzbGW_overlay、
+// Cordis 控制面板 .Nqubda_panel）会把本列的 transform 当包含块、被夹成 280px，
+// 所以 :has 命中时退回 left 隐藏。
+check('抽屉动画：transform 滑动 + 宿主同款时长缓动，列内有 fixed 弹出层时退回 left', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const collapsed = /\[class\*="_frame"\] > \[class\*="_sidebarCol"\] \{([^}]*)\}/.exec(css)
+  const expanded = /\[class\*="_frame"\]:not\(\[data-sidebar-collapsed\]\) > \[class\*="_sidebarCol"\] \{([^}]*)\}/.exec(css)
+  assert.ok(collapsed && expanded, '应能找到抽屉收起/展开两条规则')
+  assert.ok(/transform: translateX\(-100%\) !important/.test(collapsed[1]), '收起态用 transform 移出画布')
+  assert.ok(
+    !/left:\s*calc\(-1/.test(collapsed[1]),
+    '收起态不该再用 left 偏移（布局属性，动画期间每帧重绘整列）',
+  )
+  assert.ok(
+    /transition: transform var\(--dsh-android-ui-drawer-ms, 300ms\) var\(--ds-ease-in-out, cubic-bezier\(\.4, 0, \.2, 1\)\)/.test(
+      collapsed[1],
+    ),
+    '抽屉过渡应为 transform + 宿主同款时长(300ms)/缓动(--ds-ease-in-out)',
+  )
+  assert.ok(/transform: none !important/.test(expanded[1]), '展开态必须把 transform 清零（残留会让整列偏移）')
+  const root = /:root \{([^}]*)\}/.exec(css)
+  assert.ok(root, '应能找到 :root 变量块')
+  assert.ok(/--dsh-android-ui-drawer-ms: 300ms/.test(root[1]), '抽屉时长与宿主慢速过渡一致（300ms）')
+  // 兜底：列内有 fixed 弹出层时退回 left 隐藏（transform 会成为它们的包含块）。
+  const guard = /\[class\*="_frame"\] > \[class\*="_sidebarCol"\]:has\(([^)]*)\) \{([^}]*)\}/.exec(css)
+  assert.ok(guard, '应有"列内有 fixed 弹出层"的 :has 兜底规则')
+  assert.ok(guard[1].includes('.VOzbGW_overlay'), '兜底要认设置对话框')
+  assert.ok(guard[1].includes('.Nqubda_panel'), '兜底要认 Cordis 控制面板（同样是列内 fixed 弹出层）')
+  assert.ok(
+    /transform: none !important/.test(guard[2]) && /left: calc\(-1 \* min\(280px, 84vw\)\) !important/.test(guard[2]),
+    '兜底态必须无 transform、改回 left 隐藏',
+  )
+  const guardOpen = /\[class\*="_frame"\]:not\(\[data-sidebar-collapsed\]\) > \[class\*="_sidebarCol"\]:has\([^)]*\) \{([^}]*)\}/.exec(css)
+  assert.ok(guardOpen && /left: 0 !important/.test(guardOpen[1]), '兜底态下展开必须把 left 收回来（否则抽屉消失）')
+  // 减弱动态效果时这几条（含 :has 兜底，特异性更高）必须一起关掉过渡。
+  const reduce = /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/.exec(css)
+  assert.ok(reduce, '应能找到 prefers-reduced-motion 块')
+  assert.equal(
+    (reduce[0].match(/:has\(\.VOzbGW_overlay, \.Nqubda_panel\)/g) || []).length,
+    2,
+    'reduced-motion 里两条 :has 兜底选择器都要列出（特异性更高，漏了就还在动）',
+  )
+})
+
 // 悬浮开关的图标来源与尺寸：折叠态下 toggle 里的第一个 svg 是 sidebar.brand.mark
 // 槽位的品牌标记（鱼 logo），克隆它就成了"左上角一个鱼按钮"（用户实测反馈）。
 // 要的是宿主自己的面板图标；外观用应用自己的浮层按钮 token（悬在内容上，纯图标
