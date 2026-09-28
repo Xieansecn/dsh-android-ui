@@ -454,7 +454,6 @@ function installSidebarFab(): Disposer {
   }
 }
 
-/** 全部效果的安装器（顺序无关，各自独立）。 */
 /** 10) 模型胶囊的宽度上限跟随权限胶囊：把权限胶囊的实测宽度写进卡片上的
  *  --dsh-modes-w，样式表用它把模型胶囊放宽到"顶到权限胶囊前 12px 再省略"（见
  *  mobile-css.ts 的 ._7KE1Ra_root）。ResizeObserver 只在权限胶囊自己尺寸变化时触发

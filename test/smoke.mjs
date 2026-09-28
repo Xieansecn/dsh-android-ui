@@ -92,21 +92,36 @@ check('移动端 CSS：胶囊在卡片上方独立成排（外观同输入框）
   )
   // 两颗胶囊的观感：照输入框卡片那套画 —— 底色 = 卡片的 --dsw-specific-input-major，
   // 0.5px 极细描边 = 卡片自己 stroke 的颜色 --dsw-alias-border-l2，外加两层极淡投影。
+  // 这一整套与左上角那颗悬浮开关**共用同一对变量**（--dsh-android-ui-chip-*，
+  // 用户指定"按钮边缘与作曲栏一致"），两边因此不可能各飘各的。
   // 描边必须用 box-shadow 画：宿主那两颗触发器是 content-box（模型触发器实测
   // height:28px、border:none），真 border 会把胶囊撑到 29px、顶破上面的预留带。
   const pill = /\.uV2eYG_row \.uV2eYG_modes button\[class\*="_trigger"\],[\s\S]*?\._7KE1Ra_trigger\s*\{([^}]*)\}/.exec(css)
   assert.ok(pill, '应能找到权限/模型两颗胶囊的外观规则')
   assert.ok(
-    pill[1].includes('background: var(--dsw-specific-input-major'),
-    '胶囊底色必须与输入框卡片同色（--dsw-specific-input-major）',
+    pill[1].includes('background: var(--dsh-android-ui-chip-fill'),
+    '胶囊底色必须与输入框卡片同色（--dsh-android-ui-chip-fill → --dsw-specific-input-major）',
   )
   assert.ok(
-    /box-shadow:\s*0 0 0 \.5px var\(--dsw-alias-border-l2/.test(pill[1]),
+    /box-shadow:\s*var\(--dsh-android-ui-chip-edge/.test(pill[1]),
     '胶囊要有 0.5px 极细描边（与卡片 stroke 同色），由 box-shadow 画、不占布局',
   )
   assert.ok(
     !/\bborder:\s*[^;]*solid/.test(pill[1]),
     '描边不许写成真 border（content-box 下会把 28px 胶囊撑成 29px）',
+  )
+  // 共用变量的定义处：必须落在 **body** 上，不能放 :root —— 调色 token 是宿主写在
+  // body{…} 里的，自定义属性里的 var() 在**声明所在元素**上求值，放 :root 会双双
+  // 落到兜底值（深色主题下悬浮开关变回一块白）。
+  const chip = /\nbody\s*\{([^}]*--dsh-android-ui-chip-fill[^}]*)\}/.exec(css)
+  assert.ok(chip, '悬浮开关/胶囊共用的"边缘"变量应定义在 body 上（:root 取不到调色 token）')
+  assert.ok(
+    chip[1].includes('--dsh-android-ui-chip-fill: var(--dsw-specific-input-major'),
+    '共用底色 = 输入框卡片的 --dsw-specific-input-major',
+  )
+  assert.ok(
+    /--dsh-android-ui-chip-edge:\s*0 0 0 \.5px var\(--dsw-alias-border-l2/.test(chip[1]),
+    '共用边缘 = 0.5px 极细描边（与卡片 stroke 同色）+ 两层极淡投影',
   )
   const shrink = /\.uV2eYG_modes > \*\s*\{([^}]*)\}/.exec(css)
   assert.ok(
@@ -167,6 +182,38 @@ check('移动端 CSS 不改侧栏会话行的尺寸', () => {
   assert.ok(
     !/\[class\*="_sessionRow"\][^{]*\{[^}]*min-height/.test(css),
     '侧栏会话行不应有 min-height 覆盖（沿用宿主原尺寸）',
+  )
+})
+
+// 抽屉底部的「设置」入口（sidebar.settings 座席 → .VOzbGW_trigger）套
+// dsh-mobile-nav（dsh-web-mobile）那颗药丸的观感（描边 + 圆角 + 按下反馈），
+// 但底色必须与抽屉背景分开 —— 透明底就是侧栏自己的 sidebar-fill，按钮和背景同色。
+// 做法是直接沿用宿主同一列那颗「新建会话」的画法：button-elevated-fill + .5px border-l3。
+check('侧栏设置入口：套 dsh-mobile-nav 药丸、底色与抽屉背景分开', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const pill = /\.VOzbGW_trigger:not\(\.VOzbGW_rail\)\s*\{([^}]*)\}/.exec(css)
+  assert.ok(pill, '应能找到侧栏设置入口（.VOzbGW_trigger）的药丸规则')
+  assert.ok(
+    /background:\s*var\(--dsw-alias-button-elevated-fill/.test(pill[1]),
+    '底色必须与抽屉背景分开（透明底 = 侧栏 sidebar-fill，同色分不出来；用宿主新建会话那颗的 elevated-fill）',
+  )
+  assert.ok(
+    /border:\s*\.5px solid var\(--dsw-alias-border-l3/.test(pill[1]),
+    '描边沿用宿主同一列那颗按钮的 .5px border-l3（4% 的 border-l1 在浅底上几乎看不见）',
+  )
+  assert.ok(/border-radius:\s*12px/.test(pill[1]), '药丸圆角 12px（与那颗药丸一致）')
+  assert.ok(!/height:/.test(pill[1]), '高度沿用宿主的 42px 整行（触控目标，不照抄药丸的 34px）')
+  assert.ok(
+    !/\.VOzbGW_trigger\s*\{/.test(css),
+    '规则要排除 .VOzbGW_rail（侧栏收起时那颗 36×36 圆钮套描边会变成带边框的圆）',
+  )
+  // 按下/悬停必须用**实色** token：interactive-bg-hover 是半透明的，
+  // 当 background 用会把刚填上的底色又换回背景色（按下去按钮反而"消失"）。
+  assert.ok(
+    /\.VOzbGW_trigger:not\(\.VOzbGW_rail\):hover,\s*\.VOzbGW_trigger:not\(\.VOzbGW_rail\):active\s*\{\s*background:\s*var\(--dsw-alias-interactive-bg-hover-solid/.test(
+      css,
+    ),
+    '按下反馈必须与 :hover 同列（触摸端没有 hover），且用实色 token 而不是半透明的 hover 色',
   )
 })
 
@@ -279,24 +326,41 @@ check('悬浮开关：克隆面板图标（非品牌标记）、按浮层 token 
     'width: 28px',
     'height: 28px',
     'border: none',
-    'background: var(--dsw-alias-button-floating-fill',
-    'box-shadow: 0 2px 12px rgba(0, 0, 0, .18)',
+    // 边缘（底色 + 0.5px 细描边 + 两层极淡投影）与权限/模型两颗胶囊同一对变量：
+    // 用户指定"按钮边缘与作曲栏一致"，写死自己的一套就又会飘。
+    'background: var(--dsh-android-ui-chip-fill',
+    'box-shadow: var(--dsh-android-ui-chip-edge',
   ]) {
-    assert.ok(fab[1].includes(decl), `悬浮开关应像宿主浮层按钮那样有实体，缺少 ${decl}`)
+    assert.ok(fab[1].includes(decl), `悬浮开关应沿用作曲栏那套边缘，缺少 ${decl}`)
+  }
+  // 不能再是"浮层按钮"那套：底色/阴影都与作曲栏不同（用户实测反馈不像同一套 UI）。
+  for (const stale of ['button-floating-fill', '0 2px 12px rgba(0, 0, 0, .18)']) {
+    assert.ok(!fab[1].includes(stale), `悬浮开关不该再用浮层按钮那套观感（${stale}）`)
   }
   assert.ok(
     !fab[1].includes('--dsw-elevation-stroke-color'),
-    '描边应已换成阴影：不许再套 elevation token 里那条 0 0 0 .5px 描边',
+    '描边要自己画在那对共享变量里，不在基态规则里套 elevation token',
   )
   assert.ok(
     /\[data-dsh-nav-fab\]:hover,\s*\[data-dsh-nav-fab\]:active/.test(css),
     '触摸端没有 hover，`:active` 必须一起给（点下去有反馈才像按钮）',
   )
-  // 纵向位置与宿主展开态侧栏开关重合：抽屉里那颗 28px 开关上沿 22（列内边距 6 +
-  // 行内边距 8 + 居中 8）、中线 36；本按钮同尺寸同中线 → 上沿也是 22。
   assert.ok(
-    /top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ 22px\)/.test(fab[1]),
-    '悬浮开关的纵向位置必须与宿主展开态侧栏开关重合（28px、上沿 22px）',
+    /\[data-dsh-nav-fab\]:hover,\s*\[data-dsh-nav-fab\]:active\s*\{\s*background:\s*var\(--dsw-alias-interactive-bg-hover-solid/,
+    '按下反馈取作曲栏那颗 ＋ 的 hover 色（interactive-bg-hover-solid）',
+  )
+  // 纵向位置与页头右上角那颗 ExpandButton（文件预览入口）平齐：页头从视口顶起、
+  // padding-top 6px，titleRow 里最高的孩子是子代理血缘触发器（28px）或那颗 27px 的
+  // 按钮，居中 → 那颗按钮中线 20；本按钮 28px 取 top 6 时中线正好 20。
+  assert.ok(
+    /top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ 6px\)/.test(fab[1]),
+    '悬浮开关必须与页头右上角那颗文件预览入口平齐（top = safe-area + 6px，中线 20）',
+  )
+  // 页头是文档流、本按钮是 fixed：刘海要让位就得两边一起让，否则一开一合就错开。
+  const header = /\.wSkVaW_header\s*\{([^}]*)\}/.exec(css)
+  assert.ok(
+    header && /padding-top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ 6px\)/.test(header[1]),
+    '页头 padding-top 必须与悬浮开关的 top 用同一个表达式（fixed 与文档流一起抬刘海）',
   )
   const glyph = /\[data-dsh-nav-fab\]\s*svg\s*\{([^}]*)\}/.exec(css)
   assert.ok(glyph, '应有 [data-dsh-nav-fab] svg 字形规则')

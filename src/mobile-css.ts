@@ -34,6 +34,21 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   --dsh-android-ui-drawer-ms: 300ms;
 }
 
+/* 悬浮开关与作曲栏控件共用同一套"边缘"（用户指定：按钮边缘与作曲栏——输入框卡片
+ * 和权限/模型两颗胶囊——一致）：底色、0.5px 极细描边、两层极淡投影都从这两个变量
+ * 里取，悬浮开关与两颗胶囊因此不可能各画各的。
+ * **必须定义在 body 上，不能放 :root**：调色 token（--dsw-specific-input-major /
+ * --dsw-alias-border-l2）是宿主写在 body{…} 与 body[data-ds-dark-theme]{…} 里的，
+ * 而自定义属性里的 var() 是在**声明所在元素**上求值的 —— 定义在 :root(html) 上时
+ * 两个 token 都取不到、双双落到兜底值，深色主题下悬浮开关会变回一块白。 */
+body {
+  --dsh-android-ui-chip-fill: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, #fff));
+  /* 描边用 box-shadow 画（0.5px 细线，不参与布局）：宿主那两颗胶囊是 content-box，
+     真 border 会把 28px 的胶囊撑到 29px、顶破输入框上方那条预留带。 */
+  --dsh-android-ui-chip-edge: 0 0 0 .5px var(--dsw-alias-border-l2, rgba(0, 0, 0, .1)),
+    0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .06);
+}
+
 /* 子代理目录树下拉（.ZKlsPq_menu）**故意不写规则**：上游 rc.1 之后改成
  * createPortal + JS 定位（catalogMenuPosition：top = 触发器下沿 + 5，left 在
  * 视口内 clamp，宽度/高度也用 CSS 的 min(…, 100vw/100vh - …) 收住），并且把
@@ -133,29 +148,30 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
       visibility 0s linear 0s !important;
   }
   /* 悬浮开关（浏览器半 [data-dsh-nav-fab] 注入，折叠态才置 visible）：
-     它悬在会话内容**之上**（不像页头里那些按钮有容器背景），所以要用应用自己的
-     浮层按钮样式 —— 底色取"回到底部"那颗 .EvIC1a_toBottom 用的
-     button-floating-fill、墨色 label-primary。
-     阴影**不套**宿主的 elevation token：那套 = "0 0 0 .5px 描边 + 两层极淡投影"，
-     用户要求把描边换成阴影，所以这里写两层 rgba 投影（那条 .5px 在浅底上看着像
-     硬边框）。固定 rgba 而不是 bg-mask 系 token：后者的语义在深色主题里会反过来
-     （mask-1 变 50% 黑），不适合当投影。
-     之前照页头图标按钮那样做成"纯图标无底色"，悬在内容上读起来像一个飘着的图标、
-     不像按钮（用户实测反馈）。
-     **尺寸与页头右上角那颗"打开右侧边栏"按钮（ExpandButton）一致**：28×28、字形
-     15px（用户要求）；纵向位置与宿主**展开态**的侧栏开关完全重合 —— 抽屉里那颗
-     28px 开关在 .hHd-Xa_logoRow 内（列内边距 6 + 行内边距 8 + 居中 8 → 上沿 22、
-     中线 36），同尺寸同中线即同一上沿 22；开合抽屉时按钮不上下跳。
-     根节点 html/body/#root 是 height:100%/margin:0，宿主自己不做 safe-area，所以
-     这里只保留 inset 兜底（真机竖屏一般是 0、对齐是精确的；有刘海时宁可低一点，
-     也不钻进状态栏）。
+     外观**与作曲栏同一套"边缘"**（用户指定）：底色、0.5px 极细描边、两层极淡投影
+     全部走 --dsh-android-ui-chip-fill / --dsh-android-ui-chip-edge（定义在上面那条
+     body 规则里），与权限/模型两颗胶囊是同一份声明。它悬在会话内容上，之前用的是
+     应用的"浮层按钮"那套（button-floating-fill + 两层 rgba 重投影），在浅底上比
+     作曲栏的控件更"浮"、边缘也不一样（用户实测反馈：不像同一套 UI）。
+     纵向位置**与页头右上角那颗文件预览入口（ExpandButton，[data-sidebar-right-expand]）
+     平齐**（用户指定）：那才是会话页里与它同排的控件。推导 —— .wSkVaW_header 从
+     视口顶开始（frame 是 grid-template-rows:100%，没有上内边距）；宿主自己的
+     padding-top 在 0.1.7-rc.2 是 10px，本文件把它压到 6px（见下面的 .wSkVaW_header
+     规则，页头同样要紧凑），titleRow 的最小高度被本文件收到 24px，于是行高由里面
+     最高的孩子决定：子代理血缘触发器（.ZKlsPq_switcherTrigger min-height:28px）或
+     那颗 27px 的 ExpandButton，居中对齐 → 那颗按钮在行高 28 时上沿 = 6 + (28-27)/2
+     ≈ 6.5、中线 20。本按钮 28px，取 top = 6 时中线正好 20，与它精确重合；
+     行里没有血缘触发器时（行高 27）差 0.5px，肉眼不可见。
+     页头那条 padding-top 必须一起抬 safe-area：宿主自己不给页头留刘海，而本按钮是
+     fixed、不会跟着页头走 —— 两边用同一个表达式，两种机型上才都不错开。
+     尺寸仍是 28×28、字形 15px（与右上角那颗 ExpandButton 的 svg 同尺寸）。
      图标是宿主自己的面板图标（IconPanelLeftOutline16）。
      z-index 低于抽屉(40)与遮罩(39)，抽屉一开就被盖住。
      左上角占位由下面的页头内边距让出来。
      用透明度而不是 display 切换，才能跟抽屉同步淡入淡出。 */
   [data-dsh-nav-fab] {
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 22px);
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
     left: 8px;
     z-index: 30;
     display: inline-flex;
@@ -168,17 +184,20 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     padding: 0;
     border: none;
     border-radius: 100px;
-    background: var(--dsw-alias-button-floating-fill, #fff);
+    background: var(--dsh-android-ui-chip-fill, var(--dsw-specific-input-major, #fff));
     color: var(--dsw-alias-label-primary, inherit);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+    box-shadow: var(--dsh-android-ui-chip-edge,
+      0 0 0 .5px var(--dsw-alias-border-l2, rgba(0, 0, 0, .1)), 0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .06));
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: opacity var(--dsh-android-ui-drawer-ms, 300ms) var(--ds-ease-in-out, cubic-bezier(.4, 0, .2, 1));
   }
-  /* 触摸端没有 hover：:active 是唯一能证明"这是一颗按钮"的即时反馈。 */
+  /* 触摸端没有 hover：:active 是唯一能证明"这是一颗按钮"的即时反馈。
+     按下底色取作曲栏里那颗 ＋ 的 hover token（interactive-bg-hover-solid），
+     不是浮层按钮那套 —— 与上面的边缘是同一套观感。 */
   [data-dsh-nav-fab]:hover,
   [data-dsh-nav-fab]:active {
-    background: var(--dsw-alias-button-floating-hover, var(--dsw-alias-interactive-bg-hover));
+    background: var(--dsw-alias-interactive-bg-hover-solid, var(--dsw-alias-interactive-bg-hover));
   }
   [data-dsh-nav-fab]:focus-visible {
     outline: 2px solid var(--dsw-alias-state-business-primary, #4f6ef7);
@@ -198,10 +217,15 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   /* 悬浮开关压在左上角，会话页头整块让出这条带：28px 按钮 + 8px 左边距 + 8px
      间隔 = 44px。让位**统一给 header**，不给 titleRow。
      右边距沿用宿主的 28px：headerCorner 自带 margin-right:-16px，改小会把那颗
-     按钮推出屏幕。 */
+     按钮推出屏幕。
+     padding-top 单独再写一条：它必须与悬浮开关的 top 用同一个表达式（悬浮开关是
+     fixed、页头是文档流，宿主自己不给页头留刘海），否则刘海机型上左上角那颗与
+     右上角的文件预览入口会错开 —— 见上面 [data-dsh-nav-fab] 那段的推导。
+     简写留在前面，是为了"左内边距 44px"这条基线仍然是一个可读的 4 段值。 */
   .wSkVaW_header {
     min-height: 0 !important;
     padding: 6px 28px 0 44px !important;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 6px) !important;
   }
   /* 遮罩常驻、用透明度过渡，才能跟着抽屉一起淡出（只在展开态存在的话，
      一收起就"啪"地消失，没有收起动画）。 */
@@ -245,6 +269,33 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
      safe-area，取不到时兜底 8px。 */
   [class*="_frame"] > [class*="_sidebarCol"] {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px) !important;
+  }
+
+  /* 抽屉底部的「设置」入口（宿主 sidebar.settings 座席 → .VOzbGW_trigger）：
+     观感套 dsh-mobile-nav（dsh-web-mobile）抽屉底部那颗药丸（描边 + 圆角 +
+     hover/按下反馈），但**底色必须与抽屉背景分开**（用户指定）：透明底就是侧栏
+     自己的 --dsw-specific-sidebar-fill（亮色 #f9fafb），按钮与背景同色，只剩一条
+     4% 的细线，看着不像一颗按钮。
+     所以底色/描边直接沿用宿主**同一列里那颗「新建会话」**的画法
+     （.hHd-Xa_newSession：button-elevated-fill + .5px border-l3）—— 同一列两种
+     按钮一套观感，深浅色主题都跟着 token 走（暗色下 elevated-fill #43454a
+     也明显亮于侧栏 #1b1b1c）。
+     高度/内边距/字号一律沿用宿主原值（42px 整行）：那颗药丸本身是 34px，
+     但触控目标越大越好按，用户要的是"手指按住有反应"的观感，不是把行做小。
+     排除 .VOzbGW_rail：侧栏收起时宿主仍渲染这一行（只是缩成 36×36 圆钮），
+     给圆钮套描边会变成一个带边框的圆（那时整列在屏外，看不见，但别留着）。 */
+  .VOzbGW_trigger:not(.VOzbGW_rail) {
+    background: var(--dsw-alias-button-elevated-fill, var(--dsw-specific-input-major, #fff)) !important;
+    border: .5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, .12)) !important;
+    border-radius: 12px !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 按下/悬停换成**实色** hover token（作曲栏那颗 ＋ 用的同一个）：
+     --dsw-alias-interactive-bg-hover 是半透明的（#2631480f），拿它当 background
+     会把刚填上的底色又换回接近背景的浅灰 —— 按下去按钮反而"消失"。 */
+  .VOzbGW_trigger:not(.VOzbGW_rail):hover,
+  .VOzbGW_trigger:not(.VOzbGW_rail):active {
+    background: var(--dsw-alias-interactive-bg-hover-solid, var(--dsw-alias-interactive-bg-hover)) !important;
   }
 
   /* 设置面板顶栏：宿主在窄屏下把"设置"标题压成 40px 宽、两个字竖排
@@ -395,10 +446,12 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
     flex-shrink: 1 !important;
   }
   /* 胶囊外观：照输入框卡片那套画（用户指定"和输入框样式颜色相同 + 很细的描边"）——
-     底色 = 卡片的 --dsw-specific-input-major（亮色 #fff / 暗色 bluish-850），描边 =
-     卡片自己那条 stroke 的颜色 --dsw-alias-border-l2（亮色 #0000001a / 暗色
-     #ffffff1f），再补两层极淡投影（对应卡片 elevation-soft 里那两层，但**不含**
-     0 0 0 .5px 那条：这里已经用 box-shadow 自己画了描边，直接套 token 会叠出双线）。
+     底色 = 卡片的 --dsw-specific-input-major，描边 = 卡片自己那条 stroke 的颜色
+     --dsw-alias-border-l2，再补两层极淡投影（对应卡片 elevation-soft 里那两层，
+     但**不含** 0 0 0 .5px 那条：这里已经用 box-shadow 自己画了描边，直接套 token
+     会叠出双线）。这一整套取值集中在文件顶部的 --dsh-android-ui-chip-fill /
+     --dsh-android-ui-chip-edge（**body 上**，理由见那段注释）—— 左上角那颗悬浮开关
+     用的是同一份声明，两处观感因此永远一致（用户指定"按钮边缘与作曲栏一致"）。
      用 box-shadow 而不是 border：宿主这两颗触发器是 content-box（模型触发器实测
      height:28px、border:none），真 border 会把胶囊撑到 29px，把预留带顶破；box-shadow
      不参与布局，0.5px 的细线也是宿主自己画描边的习惯写法。
@@ -410,9 +463,9 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   .uV2eYG_row ._7KE1Ra_trigger {
     max-width: 100% !important;
     min-width: 0 !important;
-    background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, #fff)) !important;
-    box-shadow: 0 0 0 .5px var(--dsw-alias-border-l2, rgba(0, 0, 0, .1)),
-      0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .06) !important;
+    background: var(--dsh-android-ui-chip-fill, var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, #fff))) !important;
+    box-shadow: var(--dsh-android-ui-chip-edge,
+      0 0 0 .5px var(--dsw-alias-border-l2, rgba(0, 0, 0, .1)), 0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .06)) !important;
   }
   .uV2eYG_modes [class*="triggerLabel"],
   ._7KE1Ra_triggerLabel,
@@ -551,7 +604,7 @@ export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-a
   }
 
   /* 会话头部：标题行允许换行，子代理血缘另起一行，避免"预设/子代理/Session Log"
-     挤在一行。纵向一律收到最小 —— 左边基线由上面的 .wSkVaW_header 统一给 56px，
+     挤在一行。纵向一律收到最小 —— 左边基线由上面的 .wSkVaW_header 统一给 44px（悬浮开关让位量），
      这里只调行高、间距与内边距，碰不到水平定位，所以收紧也不会重叠。 */
   .wSkVaW_titleRow {
     flex-wrap: wrap !important;
