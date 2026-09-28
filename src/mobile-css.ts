@@ -4,20 +4,28 @@
  * 移植自 deepseek-harness-android/patches/mobile.css，规则逐字保留。
  *
  * ⚠️ 版本敏感：选择器里的类名（.uV2eYG_* / .VOzbGW_* / ._7KE1Ra_* / .wSkVaW_* /
- * .hHd-Xa_* / .ZKlsPq_* / .EvIC1a_* / ._list_1nxmc_8 / .QsffPG_* / .JObwrW_* /
- * .pI_x6G_frame 系列，以及 client.ts 的 ._bubble_1nw3t_1）来自 dsh 0.1.5-rc.1 的
- * 构建产物，上游重新构建后哈希前缀会变、CSS module 的本地名（_frame / _sidebarCol /
- * _menu …）不变。**版本号没变也会变**：同一个 0.1.5-rc.1 重新发布后 .h8S2Va_* →
- * .ZKlsPq_*、.Md3f7G_hint → .EvIC1a_hint、._list_19372_8 → ._list_1nxmc_8、
- * ._bubble_owhem_8 → ._bubble_1nw3t_1（2026-09 实测），所以升级 dsh 后要按本文件
- * 逐个类名核对是否还命中（不命中只是效果静默失效，不会报错）。核对方法：在
- * `npm root -g`/@deepseek-ai/dsh/node_modules 下 grep 类名，或按本地名反查
- * （`grep -rho "[A-Za-z0-9_-]*_hint\b"`）。
- * 优先依赖 data-* 稳定契约（data-sidebar-collapsed / data-rightbar-collapsed /
- * data-shell-overlay / data-dsh-kb-open），其次按本地名后缀做子串匹配
+ * .hHd-Xa_* / .ZKlsPq_* / ._list_gzo7u_* / .P3OORG_* / .Nqubda_* / .pI_x6G_frame 系列，
+ * 以及 client.ts 的 ._bubble_ugtpz_1）**已按 dsh 0.1.7-rc.2 逐个核对命中**，
+ * 上游重新构建后哈希前缀会变、CSS module 的本地名（_frame / _sidebarCol / _menu …）
+ * 不变。**版本号没变也会变**：同一个 0.1.5-rc.1 重新发布后 .h8S2Va_* → .ZKlsPq_*、
+ * .Md3f7G_hint → .EvIC1a_hint、._list_19372_8 → ._list_1nxmc_8、
+ * ._bubble_owhem_8 → ._bubble_1nw3t_1；升到 0.1.7-rc.2 后 ._list_1nxmc_8 →
+ * ._list_gzo7u_7、._bubble_1nw3t_1 → ._bubble_ugtpz_1（气泡还搬进了外壳
+ * dsh-web-frontend，其它仍是各自的 client-ui-* 包）。
+ * 所以升级 dsh 后要按本文件逐个类名核对是否还命中（不命中只是效果静默失效，不会报错）。
+ * 核对方法：在 `npm root -g`/@deepseek-ai/dsh/node_modules/@deepseek-ai/ 下按包名 grep
+ * lib/client.js（外壳那几个类名在外壳包 dsh-web-frontend 的 dist/assets 里），
+ * 或按本地名反查（`grep -rho "[A-Za-z0-9_-]*_hint\b"`）。
+ * 优先依赖 data-* 稳定契约（data-sidebar-collapsed / data-shell-overlay /
+ * data-shell-leading / data-dsh-kb-open），其次按本地名后缀做子串匹配
  * （[class*="_frame"]），最后才是整串哈希类名。
  * 踩过的坑：data-details-collapsed 在 0.1.5-rc.1 已被 data-sidebar-collapsed 取代，
  * 旧规则静默失效，展开侧栏会把对话区挤成窄条（见下方抽屉段注释）。
+ * 另一类坑（0.1.7-rc.2 集中清理了一批）：**宿主自己接管了定位**的下拉/面板 ——
+ * 子代理菜单、后台任务菜单、模型菜单、用量/上下文面板、tooltip 气泡，现在都是
+ * createPortal（或条件渲染）+ JS 算坐标 + 内联 style。本文件对它们再写
+ * position/left/right/top 的 !important 只会盖掉内联值（!important 赢过内联），
+ * 属于"必须删掉"而不是"失效"。
  */
 export const MOBILE_CSS = String.raw`/* 竖屏手机适配覆盖层 —— dsh-android-ui */
 
@@ -57,41 +65,37 @@ body {
  * 2026-09 之前为"绝对定位 + left:0"版本写的旧规则，现在只会帮倒忙。
  * 若将来上游回退成纯 CSS 左锚定展开，右边界会重新出屏，届时再加回来。 */
 
-/* 后台任务下拉（.QsffPG_menu）：上游仍是 trigger 内的 absolute;left:0
- * （无内联坐标），触发器贴页头右侧 → 右边界会出屏，这里右对齐触发器右缘。 */
-.QsffPG_menu {
-  left: auto !important;
-  right: 0 !important;
-}
+/* 后台任务下拉（.QsffPG_menu）**也不再接管**（0.1.7-rc.2）：宿主给它加了 JS 视口吸附 ——
+ * useLayoutEffect 里按触发器 rect 与菜单 offsetWidth 算出 menuShift，把菜单夹在
+ * [VIEWPORT_MARGIN, 100vw - margin] 内并写进**内联 left**（宽度也已经是
+ * width:500px + max-width:min(560px, 100vw - 32px)）。
+ * 本文件原来那两条（顶层 right:0；≤480px 的 fixed + left:8/right:8 全宽面板）都是
+ * !important，会盖掉内联 left —— 与子代理下拉同一个坑：把宿主算好的吸附丢掉。
+ * 旧版宿主是 trigger 内 absolute;left:0 无内联坐标，那时才需要右对齐/全宽化。 */
 
-/* 用量/上下文仪表面板（.JObwrW_panel）：纯 CSS 修复，所有宽度生效。
- * 上游样式是 absolute;bottom:calc(100% + 8px);right:0;width:264px，
- * 面板向上展开会被会话滚动容器（overflow 裁剪）遮挡，触发器不贴右时还会
- * 出边界。这里与子代理下拉同款思路：改成 position:fixed 挂在最上层，
- * 按视口锚定（贴右、位于作曲栏上方），尺寸受视口约束。 */
-.JObwrW_panel {
-  position: fixed !important;
-  left: auto !important;
-  top: auto !important;
-  right: 12px !important;
-  bottom: 64px !important;
-  max-width: calc(100vw - 24px) !important;
-  max-height: 60vh !important;
-  overflow-y: auto !important;
-  z-index: 2147483647 !important;
-}
+/* 用量/上下文仪表面板（.JObwrW_panel）与本模块**无关了**（0.1.7-rc.2）：宿主把它改成
+ * createPortal + useAnchoredPosition（useLayoutEffect 里量触发器 rect、side:top/gap:8、
+ * 视口内按 margin 12 clamp，scroll/resize/自身 ResizeObserver 都会重算），坐标写在
+ * 面板的**内联 style** 上，宽度也由宿主自己收成 min(264px, 100vw - 24px)。
+ * 这里曾经写 right/bottom/left/top 的 !important 把面板按到"右下角固定位置" ——
+ * !important 赢过内联，等于把宿主算好的坐标丢掉（与子代理下拉同一个坑）。
+ * 旧版宿主是 trigger 内的 absolute;bottom:calc(100%+8px);right:0，那时才需要接管。 */
 
 @media (max-width: 480px) {
   /* 侧栏整列脱离网格流：折叠 = 完全收起（不占宽度），展开 = 覆盖式抽屉。
-     0.1.5-rc.1 的壳：frame 带 data-sidebar-collapsed（**展开时整个属性消失**，
-     折叠时 =true），列依次是 sidebarCol / centerCol / rightbarCol，遮罩层是
-     [data-shell-overlay]。旧版用来识别的 data-details-collapsed 在这一版已经
+     0.1.5-rc.1 起（0.1.7-rc.2 未变）的壳：frame 带 data-sidebar-collapsed
+     （**展开时整个属性消失**，折叠时 =true），列依次是 sidebarCol / centerCol /
+     rightbarCol，遮罩层是 [data-shell-overlay]（宿主自己还在这层里渲染 shell.overlay
+     座席内容，列外面、整个 frame 之上）。旧版用来识别的 data-details-collapsed 早已
      不存在，整段抽屉规则因此静默失效 —— 390px 展开侧栏时对话区被挤到 110px
      （实测截图）。所以改挂 CSS module 的本地名后缀（_frame / _sidebarCol 跨
      重新构建稳定，只有哈希前缀会变）。
      折叠态也必须脱流：宿主默认给折叠侧栏留 56px 竖条（390px 上占 14% 宽度，
      新建会话/搜索/用量/设置都挤在那一条里），手机上对话区因此永久少一截。
-     脱流后折叠态由浏览器半注入的悬浮按钮当入口，见 client.ts 的 sidebar-fab。 */
+     脱流后折叠态由浏览器半注入的悬浮按钮当入口，见 client.ts 的 sidebar-fab。
+     注意宿主自己的左上角座席（shell.leading，0.1.7-rc.2 的 --dsh-frame-leading-clearance
+     就是它发布的）**只在 macOS 且侧栏折叠时挂载**（layout 里 leadingMounted = darwin &&
+     sidebarCollapsed），网页/安卓端不挂，所以这颗悬浮开关仍是必要的。 */
   [class*="_frame"] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -323,14 +327,12 @@ body {
     padding-bottom: max(env(safe-area-inset-bottom), 8px) !important;
   }
 
-  /* 下拉菜单不出屏 */
-  ._list_1nxmc_8 {
+  /* 下拉菜单不出屏（外壳 UI kit 的 ._list_*；0.1.5-rc.1 是 ._list_1nxmc_8，
+     0.1.7-rc.2 变成 ._list_gzo7u_7）。宿主自己的上限是 360px、没有按视口收，
+     320px 窄屏上仍会顶出右边界；这里把它夹到视口内。
+     菜单本体若走 portal（._portal_gzo7u_41 = fixed + 宿主 JS 坐标）不受影响。 */
+  ._list_gzo7u_7 {
     max-width: calc(100vw - 16px) !important;
-  }
-
-  /* 辅助字号微调（会话页"回到底部"那组提示） */
-  .EvIC1a_hint {
-    font-size: 13px;
   }
 
   /* 模型选择器：尺寸/内边距**一律沿用宿主原值**（实测 28px 高、gap 4），
@@ -341,29 +343,33 @@ body {
     white-space: nowrap !important;
     text-overflow: ellipsis !important;
   }
-  /* 下拉菜单是弹层、不在作曲栏里，选项仍按触控目标 44px */
+  /* 下拉菜单是弹层、不在作曲栏里，选项仍按触控目标 44px。
+     菜单尺寸本身**不动**：宿主 0.1.7-rc.2 已经是 fixed + width:max-content、
+     max-width:min(420px, 100vw - 32px)、max-height:min(360px, 100vh - 96px)，
+     比本文件原来那条 max-height:50vh 更严格。 */
   ._7KE1Ra_option {
     min-height: 44px !important;
   }
-  ._7KE1Ra_menu {
-    max-height: 50vh !important;
-  }
 
-  /* 作曲栏布局（窄屏重排）。DOM 实测结构：
-       .uV2eYG_card(position:relative)
-         ├─ .uV2eYG_scroll：输入区
+  /* 作曲栏布局（窄屏重排）。DOM 实测结构（0.1.7-rc.2）：
+       .uV2eYG_card(position:relative, data-composer-card)
+         ├─ .uV2eYG_overlayAnchor / .uV2eYG_accessory / 附件座席 / .uV2eYG_scroll 输入区
          └─ .uV2eYG_row（宿主 container-type:inline-size，本文件改 normal，见下）
-              ├─ .uV2eYG_tools：＋(add) / 附件(add) / 权限(modes) / [input.left]
-              └─ .uV2eYG_trailing：模型(_7KE1Ra_root) / 上下文(JObwrW_root) / 发送(primary)
+              ├─ .uV2eYG_tools（hidden=activity）：＋(add) / 附件(input file) /
+              │    权限+计划(.uV2eYG_modes) / [input.left]
+              └─ .uV2eYG_trailing
+                   ├─ .uV2eYG_standardControls（hidden=activity）：[input.right]=上下文 /
+                   │    模型座席(._7KE1Ra_root)
+                   └─ .uV2eYG_activity / _activityExpanded：[input.activity]=发送键等
      目标版式（自上而下）：
          (⚠ 完全权限 ˅)                       (▤ DeepSeek-V41-Flash High ˅)
          ┌───────────────────────────────────┐
          │ [输入框]                           │
-         │ (＋) (📎)     ◔ 上下文已用 xx%  [发送] │
+         │ (＋) (📎)     ◔ 45% 上下文已用 45%  [发送] │
          └───────────────────────────────────┘
-     做法：tools 拍平（display:contents）把 ＋/附件 并进底行；trailing 保留 flex 盒子，
-     并显式 margin-left:auto —— 发送键的右对齐靠它。新会话页没有上下文胶囊、
-     trailing 里只剩发送键时，如果也把 trailing 拍平，这个右推边距会一起消失，
+     做法：tools 拍平（display:contents，排除 [hidden]）把 ＋/附件 并进底行；trailing
+     保留 flex 盒子，并显式 margin-left:auto —— 发送键的右对齐靠它。新会话页没有上下文
+     胶囊、trailing 里只剩活动座席时，如果也把 trailing 拍平，这个右推边距会一起消失，
      发送键就落到＋/附件后面；保留盒子后无论胶囊/上下文是否渲染，发送都在最右。
      两颗胶囊整体脱离文档流，绝对定位到卡片上方（bottom:100%，包含块 = 卡片）；
      卡片同时用 margin-top 预留同高的一条带（胶囊 28px + 间隔 8px = 36px）—— 是真
@@ -374,15 +380,15 @@ body {
      像"两枚缩小版的输入框"浮在卡片上方，而不是另一种灰底胶囊。
      底行只剩 ＋/附件/上下文/发送，flex-wrap:nowrap 保证它永远是一行：发送因此固定停在卡片
      右下角，不会再被挤到下一行（宿主原尺寸下 320px 也放得下）。权限/模型的文字标签
-     宿主默认 display:none（窄屏只给图标），这里显式放出来；上下文那个按钮 DOM 里
-     没有文本，用 ::after 取 aria-label（"上下文已用 xx%"）补上基本信息。
+     现在是宿主自己用 --dsh-composer-mode/model-text-display 这类变量 + 容器查询切换
+     （窄屏只给图标），本文件把标签显式放出来（见下面 triggerLabel 那组规则）；
+     上下文按钮宿主已经自带百分比文本，本文件不再补 ::after。
      为什么必须 container-type:normal：宿主给 .uV2eYG_row 的 container-type:inline-size
      附带 layout containment，会让**行盒**成为绝对/固定后代的包含块 —— 胶囊的
-     bottom:100% 就会以行盒为锚落进输入框里（正是要拆掉的旧形态）；它同时让卡片里
-     的 .JObwrW_panel（position:fixed）以行盒为锚。让位给卡片后：胶囊以卡片为包含块、
-     上下文面板以视口为锚（原 CSS 的意图）。代价是宿主那两条 @container 查询不再命中：
-     权限标签本来就被本文件强制显示，模型触发器 max-width:45cqw 退化成 45vw ≈ 175px，
-     仍被胶囊自己的 max-width 收住。
+     bottom:100% 就会以行盒为锚落进输入框里（正是要拆掉的旧形态）。让位给卡片后胶囊
+     以卡片为包含块。代价是宿主那条 @container (width<=560px) 的 gap 微调不再命中
+     （本文件自己给了 gap）、模型触发器 max-width:45cqw 退化成 45vw ≈ 175px，仍被胶囊
+     自己的 max-width 收住。
      边界保护：两颗胶囊各 max-width:calc(50% - 6px)，永不重叠；标签 overflow:hidden +
      ellipsis；胶囊与圆按钮尺寸一律不改（沿用宿主原值）。 */
   .uV2eYG_row {
@@ -390,10 +396,14 @@ body {
     justify-content: flex-start !important;
     align-items: center !important;
     gap: 10px !important;
-    /* 见上：让出包含块（胶囊定位到卡片、上下文面板锚定视口）。 */
+    /* 见上：让出包含块（胶囊定位到卡片，不被行盒夹住）。 */
     container-type: normal !important;
   }
-  .uV2eYG_tools {
+  /* tools 拍平：把 ＋/附件/权限胶囊并进底行。
+     必须排除 [hidden]：宿主 0.1.7-rc.2 用 hidden: activity 在会话跑起来时整组藏掉
+     （让位给 activity 座席），而 display:contents 会盖过 UA 的 [hidden]{display:none}
+     —— 不排除的话，生成期间 ＋/附件 与两颗胶囊仍会显示。 */
+  .uV2eYG_tools:not([hidden]) {
     display: contents !important;
   }
   /* trailing 不能 display:contents：宿主靠它的 margin-left:auto 把整组贴到右缘。
@@ -405,9 +415,12 @@ body {
     gap: 10px !important;
     min-width: 0 !important;
   }
-  /* 胶囊带占位：只在真有胶囊时留（工作区选择等无胶囊状态不留空档）。
-     :has 与宿主同基线——宿主自己也用 .uV2eYG_root:has([data-composer-stats])。 */
-  .uV2eYG_card:has(.uV2eYG_modes > *, ._7KE1Ra_root) {
+  /* 胶囊带占位：只在真有胶囊（且那一段没被宿主藏起来）时留。
+     两处 :not([hidden]) 是 0.1.7-rc.2 的账：会话跑起来时宿主把 tools 与
+     standardControls 整组 hidden，胶囊跟着消失，此时再留 36px 就是一条白带
+     （旧版没有这个 hidden，所以原来只判断"有没有胶囊"）。
+     :has 的写法与宿主同基线 —— 宿主自己在 composerSeat 上也用 :has。 */
+  .uV2eYG_card:has(.uV2eYG_tools:not([hidden]) .uV2eYG_modes > *, .uV2eYG_standardControls:not([hidden]) ._7KE1Ra_root) {
     margin-top: 36px !important;
   }
   /* ① 胶囊层：脱离卡片盒，悬在卡片上方 8px。权限贴卡片左缘、模型贴右缘。 */
@@ -480,33 +493,18 @@ body {
      最后一个子项。视觉顺序 = 文档顺序，不再需要 order；旧的 order/断行垫片是配合
      "胶囊压输入框"那版排的，已随胶囊上移一并删除。 */
   .JObwrW_root {
-    /* trailing 已是右对齐盒子；这里只保证上下文自己可收缩，不把发送顶出去。 */
-    margin-left: auto !important;
+    /* trailing 已是右对齐盒子；这里只保证上下文胶囊可收缩，不把发送键顶出去。
+       宿主自己的 .JObwrW_root 是 flex:none（不收缩），长文案（"上下文已用 100%"）
+       在 320px 上会撑破底行，所以显式允许它收缩。 */
+    flex-shrink: 1 !important;
     min-width: 0 !important;
   }
-  /* 上下文按钮显式给 auto 宽度 + inline-flex，否则它仍是图标按钮（宿主 28×28），
-     ::after 那段文字会溢出到卡片外。高度沿用宿主原值 28px。 */
-  .JObwrW_trigger {
-    width: auto !important;
-    min-width: 28px !important;
-    height: 28px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 6px !important;
-    padding: 0 6px !important;
-    overflow: visible !important;
-  }
-  .JObwrW_trigger::after {
-    content: attr(aria-label);
-    font-size: 12px;
-    line-height: 1;
-    white-space: nowrap;
-    /* 超长文案（"上下文已用 100%" 之类）在自己这一格内省略，不撑破底行。 */
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  /* 上下文按钮的外观**全部交回宿主**（0.1.7-rc.2）：宿主自己把它做成
+     inline-flex + gap 6 + padding 1px 8px，并在里面渲染了一个 <span>{百分比}</span>。
+     本文件曾经用 ::after 的 content:attr(aria-label) 把 aria-label（"上下文已用
+     45%"）补成可见文字 —— 那时按钮只有圆环图标；现在会把同一句话显示两遍
+     （"◔ 45% 上下文已用 45%"），还把按钮撑宽。所以整段（含 width/height/padding
+     覆盖）删掉。 */
 
   /* 作曲栏视觉收紧。结构实测（390px）：seat(pad-bottom 10) > root(pad 0 16px 4px)
      > card(pad-top 8 / gap 12 / radius 22) > [scroll(input 36) + row(44)]，
@@ -661,28 +659,16 @@ body {
   /* 子代理下拉在这里也**不接管**（理由见文件上半部分同名注释）：宿主是
      createPortal + 内联 left/top，本文件的 !important 会把它按到静态位置。 */
 
-  /* 后台任务下拉（.QsffPG_menu）：视口内全宽面板（宿主是 trigger 内的
-     absolute，top:auto 即静态位置 = 触发器正下方，不受内联样式影响）。 */
-  .QsffPG_menu {
-    position: fixed !important;
-    left: 8px !important;
-    right: 8px !important;
-    top: auto !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: calc(100vw - 16px) !important;
-    max-height: 60vh !important;
-    overflow: auto !important;
-    z-index: 100 !important;
-  }
+  /* 后台任务下拉（.QsffPG_menu）同样不接管：宿主自己按触发器 rect 把它吸附在视口内
+     （见文件上半部分的同名注释），宽度/高度/滚动都已由宿主收好。 */
 }
 
-/* 软键盘弹出时（html[data-dsh-kb-open] 由浏览器半的键盘跟随效果设置）：
-   贴底的悬浮面板（用量/上下文仪表）随键盘上移，避免被键盘遮挡；
-   其余以 top 锚定的菜单在键盘弹出时位于可视区上方，不受影响。 */
-html[data-dsh-kb-open] .JObwrW_panel {
-  bottom: calc(64px + var(--dsh-kb, 0px)) !important;
-}
+/* 软键盘弹出时的挂钩：浏览器半的键盘跟随效果会写 html.style.height /
+   data-dsh-kb-open / --dsh-kb（收起或卸载时清空）。
+   本文件现在**没有任何规则挂在它上面** —— 唯一的使用者（用量/上下文面板的 bottom
+   提升）已随宿主改用 useAnchoredPosition 而删除（面板按触发器定位，触发器自己跟着
+   页面抬起）。保留这对挂钩是给别的样式/插件用的，也是键盘跟随的自检点（冒烟测试
+   断言了弹起时写入、卸载时清空）；将来要加规则直接挂在 html[data-dsh-kb-open] 上。 */
 
 /* 设置面板入场动画的关键帧（≤480px 的两条 animation 引用它们）与"减弱动态
    效果"关闭规则。放顶层而不是嵌在媒体查询里：媒体查询嵌套虽然合法，但旧

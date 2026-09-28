@@ -11,17 +11,18 @@
 | 功能 | 机制 |
 |---|---|
 | **viewport** — `viewport-fit=cover`（刘海/挖孔安全区）+ `interactive-widget=resizes-content`（软键盘收缩内容区而不是覆盖页面） | `ctx.webServer.tapIndex()` 就地改写已有的 `<meta name="viewport">`，不新增重复标签 |
-| **移动端 CSS** — 抽屉式侧栏（合成层 `transform` 滑动，与宿主右栏文件预览面板同款时长/缓动）、safe-area 避让、作曲栏重排（权限/模型胶囊悬在输入框上方、与卡片同色同描边、发送键固定右下角、模型名顶到权限胶囊前才省略）、设置面板全屏、各类下拉不出屏 | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
+| **移动端 CSS** — 抽屉式侧栏（合成层 `transform` 滑动，与宿主右栏文件预览面板同款时长/缓动）、safe-area 避让、作曲栏重排（权限/模型胶囊悬在输入框上方、与卡片同色同描边、发送键固定右下角、模型名顶到权限胶囊前才省略）、设置面板全屏、右栏（文件/终端 dock）在 ≤480px 以全屏覆盖层开合、滑动由本模块驱动（与左抽屉同一套 300ms + 缓动，宿主自己做在 dock 子元素上的那层 transform 会被中和；0.1.7 起各类下拉/面板的"不出屏"已由宿主自己吸附，本模块只留窄屏兜底） | `{ kind: 'style' }` 注入行 → 渲染进 `<head>` |
 | **启动前 polyfill** — `AbortSignal.any`、`crypto.randomUUID`（老 WebView / 非安全上下文缺失时前端起不来） | `{ kind: 'script', placement: 'head' }` 注入行 → 解析期同步执行，早于应用 bundle |
 
 ### 浏览器半（运行时 DOM 效果，跟随活 DOM 反复执行）
 
 | 功能 | 说明 |
 |---|---|
-| tooltip 气泡重吸附 | 侧栏开合/滚动后贴着锚点重新定位，超出视口收回 |
-| 触摸交互 | 按下显示气泡、松手销毁；抽屉遮罩点击关闭 |
-| 悬浮侧栏开关 | ≤480px 折叠态下侧栏脱离网格流，入口由左上角这颗浮层按钮承担；图标克隆宿主自己的面板图标（不是品牌鱼 logo），点击转发给宿主开关 |
+| 触摸交互 | 抽屉遮罩/会话行点按收起抽屉；点按后补发一次 `mouseover` 让宿主的 hover 路径弹出提示气泡（0.1.7 的气泡是条件渲染 + 自己定位，点按的合成 mouseenter 会被紧接着的 click 关掉） |
+| 侧栏设置入口 | 抽屉底部的「设置」套 [dsh-mobile-nav](https://github.com/FunnelCakes/dsh-web-mobile) 那颗药丸的画法（12px 圆角 + 按下反馈），但底色要跟抽屉背景分开：直接沿用宿主同一列「新建会话」那颗的 `--dsw-alias-button-elevated-fill` 底 + `.5px --dsw-alias-border-l3` 描边，`:hover`/`:active` 换实色 `interactive-bg-hover-solid`；高度沿用宿主 42px 整行（不照抄药丸的 34px，触控目标大一点） |
+| 悬浮侧栏开关 | ≤480px 折叠态下侧栏脱离网格流，入口由左上角这颗按钮承担；与页头右上角那颗文件预览入口同一水平线，边缘（底色/0.5px 细描边/淡投影）与作曲栏的输入框卡片、权限/模型胶囊同一套变量；图标克隆宿主自己的面板图标（不是品牌鱼 logo），点击转发给宿主开关 |
 | 子代理触发器点按兜底 | 宿主只有 hover 路径，触摸端点第二下打不开——补发 `ArrowDown` 走宿主键盘路径 |
+| activity 状态不占位 | 会话生成中宿主把 ＋/附件与权限/模型座席整组 `hidden`，胶囊带那 36px 预留跟着撤掉（不再留一条白带） |
 | "+" 号不唤起键盘 | 捕获阶段拦下 `mousedown`，避免 React 根 refocus 拉起软键盘 |
 | `enterkeyhint=newline` | 安卓输入法回车键显示"换行"（配套 `setup.sh` 里的按键映射） |
 | 软键盘跟随 | `visualViewport` 收缩时把整页抬到键盘上方，收回时还原 |
@@ -101,8 +102,8 @@ cordis.patch.yml     组合包 patch 层（insert 一行挂进 profile）
 Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
 ┌─────────────────────────┐    ┌──────────────────────────────────┐
 │ ctx.on('index-inject')  │    │ ctx.effect(installWhenIdle(...)) │
-│   → 注入 CSS + polyfill  │    │   → tooltip 重吸附               │
-│ ctx.webServer.tapIndex  │    │   → 触摸交互                      │
+│   → 注入 CSS + polyfill  │    │   → 触摸交互（含提示气泡兜底）      │
+│ ctx.webServer.tapIndex  │    │   → 抽屉遮罩/会话行点按            │
 │   → 就地改写 viewport   │    │   → 子代理触发器兜底              │
 └─────────────────────────┘    │   → + 号键盘拦截                  │
          ↓ 渲染期               │   → enterkeyhint                  │
@@ -114,7 +115,7 @@ Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
                                      运行期按需生效
 ```
 
-**分界依据是"时机"**：必须在应用 bundle 之前生效的（viewport、polyfill）走 Node 半 index 注入；必须跟随活 DOM 反复跑的（气泡定位、键盘跟随）走浏览器半 `ctx.effect`。
+**分界依据是"时机"**：必须在应用 bundle 之前生效的（viewport、polyfill）走 Node 半 index 注入；必须跟随活 DOM 反复跑的（键盘跟随、悬浮开关、触摸兜底）走浏览器半 `ctx.effect`。下拉/面板的定位**已经交回宿主**（见"已知限制"），本模块不再插手。
 
 ## 官方文档依据
 
@@ -125,14 +126,15 @@ Node 半 (src/index.ts)                    浏览器半 (src/client.ts)
 
 ## 不在本模块范围内
 
-- **作曲栏"普通回车=换行"** — 这是改 `dsh-client-ui-conversation` 的 ProseMirror 按键映射，官方无对应扩展点，留在 `deepseek-harness-android/setup.sh`。本模块的 `enterkeyhint=newline` 与它配套。
+- **作曲栏"普通回车=换行"** — 这是改 `dsh-client-ui-conversation` 的编辑器按键映射（0.1.7-rc.2 起文本面是 shell 自己的 Lexical 编辑器），官方无对应扩展点，留在 `deepseek-harness-android/setup.sh`。本模块的 `enterkeyhint=newline` 与它配套。
 - **PWA manifest** — 浏览器独立 GET 的静态 JSON，运行期插件无法替换。保留为 `scripts/manifest-standalone.mjs` 一次性脚本。
 - **竖屏布局（抽屉/面板/断点）** — 借鉴 [dsh-mobile-nav](https://github.com/FunnelCakes/dsh-web-mobile) 等其他模块，本模块只做界面适配。
 
 ## 已知限制
 
-- **哈希类名随版本漂移** — `src/mobile-css.ts` 和 `src/client.ts` 里的 `.uV2eYG_*` / `.ZKlsPq_*` / `._bubble_1nw3t_1` 等来自 dsh `0.1.5-rc.1` 构建产物。上游重新发布同一版本也会换哈希，后果是"效果静默失效"（不报错）。升级 dsh 后需按 `AGENTS.md` 核对并更新两处常量/CSS。优先依赖 `data-*` 稳定契约。
-- **子代理下拉不接管** — 上游已用 `createPortal` + JS 内联坐标定位，`!important` 会盖掉内联值。
+- **哈希类名随版本漂移** — `src/mobile-css.ts` 和 `src/client.ts` 里的 `.uV2eYG_*` / `.ZKlsPq_*` / `._bubble_ugtpz_1` / `._list_gzo7u_7` 等**已按 dsh `0.1.7-rc.2` 逐个核对命中**（0.1.5-rc.1 的 `._bubble_1nw3t_1` / `._list_1nxmc_8` 已作废）。上游重新发布同一版本也会换哈希，后果是"效果静默失效"（不报错）。升级 dsh 后需按 `AGENTS.md` 核对并更新两处常量/CSS。优先依赖 `data-*` 稳定契约。
+- **下拉/面板的定位不接管** — 子代理菜单、后台任务菜单、模型菜单、用量/上下文面板、tooltip 气泡，上游都已改成 `createPortal`（或条件渲染）+ JS 算坐标 + 内联 `style`；本模块再写 `left/right/top` 的 `!important` 只会盖掉内联值。
+- **编辑器的合成事件不可靠** — 0.1.7-rc.2 起文本面是 shell 自己的 Lexical 编辑器；"普通回车=换行"仍需在 `dsh-client-ui-conversation` 侧改按键映射（本模块只给 `enterkeyhint`）。
 - **只对 Web profile 有意义** — 挂在别的 profile 上不工作。
 
 ## License

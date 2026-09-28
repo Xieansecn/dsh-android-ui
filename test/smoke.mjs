@@ -61,7 +61,7 @@ check('注入行：一条 style + 一条 head script（顺序即渲染顺序）'
   const rows = host.injectionRows()
   assert.equal(rows.length, 2)
   assert.equal(rows[0].kind, 'style')
-  assert.ok(rows[0].text.includes('data-dsh-kb-open'), 'style 行应含键盘跟随相关规则')
+  assert.ok(rows[0].text.includes('--dsh-android-ui-css: 1'), 'style 行应带样式表握手标记（浏览器半靠它决定要不要注入悬浮开关）')
   assert.equal(rows[1].kind, 'script')
   assert.equal(rows[1].placement, 'head', 'polyfill 必须在 head 解析期同步执行')
   assert.ok(rows[1].text.includes('AbortSignal.any'))
@@ -81,9 +81,15 @@ check('移动端 CSS：胶囊在卡片上方独立成排（外观同输入框）
     '胶囊应绝对定位到卡片上方（bottom:100% 以卡片为包含块）',
   )
   const gap = /margin-bottom:\s*(\d+)px/.exec(pills[1])
-  const card = /\.uV2eYG_card:has\([^)]*\)\s*\{([^}]*)\}/.exec(css)
+  const card = /\.uV2eYG_card:has\(([\s\S]*?)\)\s*\{([^}]*)\}/.exec(css)
   assert.ok(gap && card, '应能找到胶囊间距与卡片预留高度')
-  const reserved = /margin-top:\s*(\d+)px/.exec(card[1])
+  // 0.1.7-rc.2 宿主新增 hidden=activity：会话跑起来时 tools / standardControls 整组藏掉，
+  // 胶囊跟着消失 —— 此时不能再占那 36px（否则卡片上方留一条白带）。
+  assert.ok(
+    card[1].includes('.uV2eYG_tools:not([hidden])') && card[1].includes('.uV2eYG_standardControls:not([hidden])'),
+    '胶囊带占位要跟着宿主的 hidden 走（tools/standardControls 被 hidden 时不占位）',
+  )
+  const reserved = /margin-top:\s*(\d+)px/.exec(card[2])
   assert.ok(reserved, '卡片应预留胶囊带（真占位，胶囊才不压输入框）')
   // 胶囊 28px 是宿主原值（本文件不覆盖），预留高度必须容得下它 + 间隔。
   assert.ok(
@@ -247,19 +253,40 @@ check('会话页头：各行共用同一条左基线，且避开悬浮开关', (
 // 宿主类名核对：上游重新发布同一个 dsh 版本时哈希也会变（.h8S2Va_* → .ZKlsPq_* 等），
 // 旧名字留在代码里不会报错、只是效果静默失效 —— 所以这里把"已核对过的旧名"钉住。
 check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
+  // 注释里写历史沿革（"旧名 → 新名"）是必要的，所以核对只在**去掉注释后**的正文里做：
+  // 真正会让效果静默失效的是规则/代码里留着旧名，不是注释里提到它。
+  const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
   const texts = [
     host.injectionRows().find((row) => row.kind === 'style').text,
     readFileSync(join(root, 'lib', 'client.js'), 'utf8'),
-  ]
-  for (const stale of ['h8S2Va', 'Md3f7G', '_list_19372_8', '_bubble_owhem_8']) {
+  ].map(stripComments)
+  for (const stale of [
+    'h8S2Va',
+    'Md3f7G',
+    '_list_19372_8',
+    '_bubble_owhem_8',
+    // 0.1.7-rc.2 换掉的（0.1.5-rc.1 的值）：下拉列表类名与 tooltip 气泡类名。
+    '_list_1nxmc_8',
+    '_bubble_1nw3t_1',
+  ]) {
     for (const text of texts) {
       assert.ok(!text.includes(stale), `旧哈希类名 ${stale} 应已按新构建更新`)
     }
   }
-  // 反过来的坑：子代理下拉由宿主 createPortal + 内联坐标定位，本文件给它写
-  // left/right/top !important 会盖掉内联样式（!important 赢过内联）→ 菜单跑偏。
   const css = texts[0]
+  const bundle = texts[1]
+  assert.ok(css.includes('._list_gzo7u_7'), '下拉列表的不出屏规则应挂在 0.1.7-rc.2 的 ._list_gzo7u_7 上')
+  assert.ok(bundle.includes('._bubble_ugtpz_1'), 'tooltip 探针应指向 0.1.7-rc.2 的 ._bubble_ugtpz_1')
+  // 宿主自己接管定位的那批（子代理/后台任务/模型菜单、用量上下文面板、tooltip 气泡）：
+  // 它们现在都是 createPortal（或条件渲染）+ JS 算坐标 + 内联 style，本文件再写
+  // left/right/top 的 !important 会盖掉内联值（!important 赢过内联）→ 菜单/面板跑偏。
+  // 所以这些选择器在本文件里连出现都不该出现（只允许出现在注释里，故按规则块匹配）。
   assert.ok(!/\.ZKlsPq_menu\s*[,{]/.test(css), '子代理下拉不能有 CSS 覆盖（会盖掉宿主内联坐标）')
+  for (const owned of ['JObwrW_panel', 'QsffPG_menu', '_7KE1Ra_menu']) {
+    assert.ok(!new RegExp(`\\.${owned}\\s*[,{]`).test(css), `${owned} 的定位已由宿主接管，本文件不能再有规则块`)
+  }
+  assert.ok(!/\.JObwrW_trigger\s*\{/.test(css), '上下文按钮已是宿主自带文本，不能再覆盖它的尺寸')
+  assert.ok(!/\.JObwrW_trigger::after/.test(css), '不能再给上下文按钮补 ::after 文案（会与宿主的百分比重复）')
 })
 
 // 抽屉动画：收起/展开必须走 transform（合成层）而不是 left（布局属性，每帧都要把
@@ -716,7 +743,14 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
       getPropertyValue: (key) => (key === '--dsh-android-ui-css' ? '1' : ''),
     }),
     dispatchEvent: () => true,
-    Event: class Event {},
+    // 浏览器半在触摸兜底里 new MouseEvent/Event('mouseover')，vm 里没有 MouseEvent
+    // 会退到 Event —— 桩要留下 type，断言才看得出补发的是什么事件。
+    Event: class EventStub {
+      constructor(type, init = {}) {
+        this.type = type
+        Object.assign(this, init)
+      }
+    },
   }
   class ResizeObserverStub {
     constructor(cb) {
@@ -782,6 +816,21 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.equal(clientModule.name, 'dsh-android-ui')
   assert.equal(typeof clientModule.apply, 'function')
   assert.equal(clientModule.inject.length, 0, 'inject 应为空数组（无服务依赖）')
+  // 效果清单：tooltip 重吸附已随 0.1.7-rc.2 宿主自接管定位而删除（同子代理下拉），
+  // 剩下的六条各自独立。多一条少一条都要在这里显式改。
+  // 跨 realm：vm 里的数组原型不同，deepEqual 会误报，所以比字符串。
+  assert.equal(
+    clientModule.installers.map((fn) => fn.name).join(','),
+    [
+      'installTouchInteractions',
+      'installAddButtonKeyboardGuard',
+      'installEnterKeyHint',
+      'installKeyboardFollow',
+      'installSidebarFab',
+      'installModelPillWidth',
+    ].join(','),
+    '效果清单应与本文件/文档列出的六条一致（删掉 tooltip 重吸附后不再增删）',
+  )
   // 卸载发生在 load 之前：deferred 安装必须被 cancelled 标记挡住，迟到的 load 不能
   // 把已经停掉的插件重新唤醒（否则插件停用后页面还会被改）。
   let disposeEarly
@@ -884,10 +933,33 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   timers.pop()()
   assert.equal(dispatched.length, 1, '菜单已开时不应重复补发')
   documentStub.querySelector = realQuery
+  // 触摸端提示气泡：气流泡在 0.1.7-rc.2 是"条件渲染 + 宿主自己定位"，外面的老办法
+  // （改气泡 display + 派发 resize）全失效。宿主只给了 hover/focus 路径，而点按会
+  // 先用合成 mouseover 起表、紧接着的 click 又把它关掉 —— 触摸端永远看不到提示。
+  // 现在的兜底：等一拍确认气泡没出来，就在被点的元素上补发一次 mouseover，
+  // 让宿主自己的 hover 路径重新计时。气泡已经开着就什么都不做。
+  const hintEvents = []
+  const hintTarget = { dispatchEvent: (event) => hintEvents.push(event) }
+  listeners.get('touchend')({ target: hintTarget })
+  assert.equal(timers.length, 1, '点按应等一拍再确认气泡开没开')
+  timers.pop()()
+  assert.equal(hintEvents.length, 1, '气泡没弹出时应补发一次 mouseover')
+  assert.equal(hintEvents[0].type, 'mouseover', '补发的必须是宿主 hover 路径认的 mouseover')
+  documentStub.querySelector = (sel) => (sel === '._bubble_ugtpz_1' ? {} : realQuery(sel))
+  listeners.get('touchend')({ target: hintTarget })
+  timers.pop()()
+  assert.equal(hintEvents.length, 1, '气泡已开时不应重复补发')
+  documentStub.querySelector = realQuery
   // 模拟键盘弹出后再卸载，检查 DOM 被还原
   listeners.get('w:resize')?.()
   visualViewport.height = 500
   for (const fn of [...rafs.values()]) fn()
+  // 键盘跟随的挂钩：可视高度压到 500（innerHeight 800）时应压扁 html、打标记、写
+  // --dsh-kb。CSS 里已经没有规则挂在这对挂钩上（面板改由宿主定位），所以这里直接
+  // 断言浏览器半自己的契约，后面再断言卸载还原。
+  assert.equal(htmlElement.style.height, '500px', '软键盘弹出时应把 html 压到可视高度')
+  assert.equal(htmlElement.attrs.get('data-dsh-kb-open'), '1', '软键盘弹出时应打上 data-dsh-kb-open')
+  assert.equal(htmlElement.style['--dsh-kb'], '300px', '软键盘高度（800-500）应写进 --dsh-kb')
   dispose()
   assert.equal(observers.length, 0, '卸载应断开全部 observer')
   assert.equal(listeners.size, 0, '卸载应移除全部监听')

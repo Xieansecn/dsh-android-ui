@@ -5,12 +5,17 @@
  * 表达完的（viewport / CSS / polyfill）都放在 Node 半的 index 注入里，见 src/index.ts。
  *
  * 移植自 deepseek-harness-android/patches/mobile.js 第 3~8 段：
- *   3) tooltip 气泡重吸附（React 只在 window resize 时重定位，侧栏开合/滚动后漂移）
- *   4) 触摸交互：按下显示气泡、松手销毁；抽屉遮罩点击关闭
+ *   3) tooltip 气泡重吸附 —— 已删（0.1.7-rc.2）：宿主现在自己算坐标（Tooltip 组件里
+ *      按锚点 rect 求 left/top + 视口 clamp + 上下自动翻面，ResizeObserver 跟随气泡
+ *      自身尺寸），并把 left/top/visibility 写在内联 style 上。本文件的 rAF 回写只会
+ *      和 React 抢同一个属性（同 6 的删除理由）。
+ *   4) 触摸交互：点按后补一发 mouseover 让宿主的 hover 路径弹出提示气泡（0.1.7-rc.2
+ *      的气泡是条件渲染 + 自己定位，外部改不了它的显隐，见下）；抽屉遮罩点击关闭
  *   5) 作曲栏 "+" 号在触摸端不唤起软键盘（捕获 mousedown，阻止 React 根 keepFocus）
  *   6) 子代理下拉吸附触发器下方（实测 containing block 偏移后换算坐标）
- *      —— 已删：宿主现在自己用 createPortal + JS 算坐标（top = 触发器下沿 + 5、
- *      left 视口内 clamp）并写内联 style，这里再写只会跟 React 抢同一个属性。
+ *      —— 已删：宿主现在自己用 createPortal + JS 算坐标（catalogMenuPosition：
+ *      top = 触发器下沿 + 5、left 视口内 clamp）并写内联 style，这里再写只会跟
+ *      React 抢同一个属性。
  *   7) 作曲输入框 enterkeyhint=newline（配合"普通回车=换行"的会话补丁）
  *   8) 软键盘跟随：visualViewport 收缩时把根容器压到可视高度，整页（含输入框）抬起
  *
@@ -23,9 +28,10 @@ export const name = 'dsh-android-ui'
 /** 不需要任何宿主服务：效果全部作用于本页 DOM。 */
 export const inject: string[] = []
 
-/** tooltip 气泡类名（dsh 构建产物哈希类，版本敏感：同一个 0.1.5-rc.1 重新构建后
- *  由 ._bubble_owhem_8 变成 ._bubble_1nw3t_1）。 */
-const BUBBLE = '._bubble_1nw3t_1'
+/** tooltip 气泡类名（dsh 构建产物哈希类，版本敏感：0.1.5-rc.1 的 ._bubble_1nw3t_1
+ *  在 0.1.7-rc.2 变成 ._bubble_ugtpz_1，且这个组件搬进了前端外壳 dsh-web-frontend）。
+ *  只当"提示气泡此刻开着没"的探针用 —— 定位已由宿主自己负责（见文件头第 3 条）。 */
+const BUBBLE = '._bubble_ugtpz_1'
 /** 子代理血缘下拉：触发器（页头 crumbs 里那颗）与它展开的菜单（同上，版本敏感）。 */
 const SUBAGENT_TRIGGER = '.ZKlsPq_trigger, .ZKlsPq_switcherTrigger'
 const SUBAGENT_MENU = '.ZKlsPq_menu'
@@ -57,26 +63,6 @@ const FAB_VISIBLE_ATTR = 'data-dsh-nav-fab-visible'
 
 type Disposer = () => void
 type Element_ = any
-
-/** 元素可见性（display/visibility/opacity + 是否有渲染矩形）。 */
-function isVisible(el: Element_): boolean {
-  if (!el || el.getClientRects().length === 0) return false
-  const cs = window.getComputedStyle(el)
-  return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0'
-}
-
-/** 在视口内 clamp 一个矩形左上角。 */
-function clampToViewport(left: number, top: number, width: number, height: number, margin: number): { left: number; top: number } {
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  let l = left
-  let t = top
-  if (l + width > vw - margin) l = vw - margin - width
-  if (l < margin) l = margin
-  if (t + height > vh - margin) t = vh - margin - height
-  if (t < margin) t = margin
-  return { left: l, top: t }
-}
 
 /** 突变驱动的"每帧最多跑一次"：宿主一次首屏挂载会甩出成百批突变（模拟 2000 节点的
  *  启动 = 200 批），把 querySelector 直接挂在 MutationObserver 回调里就是每批全文档扫
@@ -126,102 +112,39 @@ function installWhenIdle(install: () => Disposer): Disposer {
   }
 }
 
-/** 每帧唤醒式的 DOM 任务骨架：MutationObserver 只在有活儿时驱动 rAF。 */
-function installFrameTask(selector: string, place: (node: Element_) => void): Disposer {
-  let raf = 0
-  const tick = (): void => {
-    raf = 0
-    let alive = false
-    const nodes = document.querySelectorAll(selector)
-    for (let i = 0; i < nodes.length; i += 1) {
-      if (!isVisible(nodes[i])) continue
-      alive = true
-      place(nodes[i])
-    }
-    if (alive) raf = window.requestAnimationFrame(tick)
-  }
-  const wake = (): void => {
-    if (!raf) raf = window.requestAnimationFrame(tick)
-  }
-  const observer = new MutationObserver(wake)
-  try {
-    observer.observe(document.documentElement, { childList: true, subtree: true })
-  } catch {
-    /* 无 documentElement 时不观察，退化为仅 resize/scroll 驱动 */
-  }
-  window.addEventListener('resize', wake)
-  window.addEventListener('scroll', wake, true)
-  wake()
-  return () => {
-    observer.disconnect()
-    window.removeEventListener('resize', wake)
-    window.removeEventListener('scroll', wake, true)
-    if (raf) window.cancelAnimationFrame(raf)
-    raf = 0
-  }
-}
-
-/** 3) tooltip 气泡：贴着锚点（前一个兄弟元素）右侧垂直居中，超出视口则收回。 */
-function installTooltipReanchor(): Disposer {
-  const GAP = 8
-  const MARGIN = 12
-  return installFrameTask(BUBBLE, (bubble) => {
-    const anchor = bubble.previousElementSibling
-    if (!anchor) return
-    const a = anchor.getBoundingClientRect()
-    if (a.width === 0 && a.height === 0) return
-    const b = bubble.getBoundingClientRect()
-    const side = bubble.getAttribute('data-side') || 'right'
-    let left: number
-    let top: number
-    if (side === 'right') {
-      left = a.right + GAP
-      top = a.top + (a.height - b.height) / 2
-    } else if (side === 'top') {
-      left = a.left + (a.width - b.width) / 2
-      top = a.top - b.height - GAP
-    } else if (side === 'bottom') {
-      left = a.left + (a.width - b.width) / 2
-      top = a.bottom + GAP
-    } else {
-      left = a.left + (a.width - b.width) / 2
-      top = a.top + (a.height - b.height) / 2
-    }
-    const placed = clampToViewport(left, top, b.width, b.height, MARGIN)
-    bubble.style.left = `${placed.left}px`
-    bubble.style.top = `${placed.top}px`
-  })
-}
-
-/** 4) 触摸交互：按下显示被触摸锚点的气泡；松手销毁全部气泡；遮罩/会话行点按收起抽屉；
+/** 4) 触摸交互：点按后补开提示气泡（走宿主 hover 路径，见下）；遮罩/会话行点按收起抽屉；
  *  子代理血缘触发器点按补开下拉（宿主只给了 hover 路径，见下）。 */
 function installTouchInteractions(): Disposer {
   const isTouch =
     'ontouchstart' in window || (typeof navigator !== 'undefined' && (navigator.maxTouchPoints || 0) > 0)
-  let hideTimer = 0
+  let hintTimer = 0
   let dismissTimer = 0
   let menuTimer = 0
-  const wakeAnchor = (): void => {
-    window.dispatchEvent(new Event('resize'))
+  /* tooltip 气泡在 0.1.7-rc.2 是【条件渲染 + 宿主自己定位】：只有 hover/focus 路径
+     （Tooltip 组件给子元素挂 onMouseEnter/onFocus 与 onClick→立刻关闭），气泡节点
+     开之前根本不在 DOM 里、坐标由宿主按锚点 rect 算并写内联 style。所以旧方案那套
+     "改写气泡 display + 派发 resize 叫醒 React" 整体失效（改的也不再是这个组件）。
+     触摸端的死结没变：点按会先补发一次合成 mouseover/mouseenter（启动提示计时器），
+     紧接着的 click 又把它关掉 —— 提示在触摸端永远看不到。
+     做法与下面子代理触发器同款：等一拍（让 click 跑完），气泡没出来就在被点的元素上
+     补一发 mouseover，让宿主自己的 hover 路径重新计时、自己弹出、自己定位。
+     不再自己动任何样式；没有包 Tooltip 的元素上补发等于空转。 */
+  const openHintOnTap = (target: Element_): void => {
+    if (!target || typeof target.dispatchEvent !== 'function') return
+    hintTimer = window.setTimeout(() => {
+      hintTimer = 0
+      if (document.querySelector(BUBBLE)) return
+      const MouseEventCtor = (window as unknown as { MouseEvent?: new (type: string, init: object) => Event }).MouseEvent
+      const event =
+        typeof MouseEventCtor === 'function'
+          ? new MouseEventCtor('mouseover', { bubbles: true, cancelable: true, view: window })
+          : new Event('mouseover', { bubbles: true })
+      target.dispatchEvent(event)
+    }, 250)
   }
-  const showTouchedBubble = (event: Event): void => {
-    let el: Element_ = event.target
-    while (el && el.nodeType === 1) {
-      const sibling = el.nextElementSibling
-      if (sibling && sibling.classList && sibling.classList.contains(BUBBLE.slice(1))) {
-        if (sibling.style.display === 'none') sibling.style.display = ''
-        wakeAnchor()
-        return
-      }
-      el = el.parentElement
-    }
-  }
-  const hideBubbles = (): void => {
-    const nodes = document.querySelectorAll(BUBBLE)
-    for (let i = 0; i < nodes.length; i += 1) nodes[i].style.display = 'none'
-  }
-  const onTouchEnd = (): void => {
-    hideTimer = window.setTimeout(hideBubbles, 120)
+  const onTouchEnd = (event: Event): void => {
+    if (!isTouch) return
+    openHintOnTap(event.target)
   }
   /* 子代理血缘触发器（页头 crumbs 里那颗，`.ZKlsPq_trigger` / `_switcherTrigger`）在
      宿主里**只有 hover 路径**：外层 onMouseEnter → 150ms 后 changeOpen(true)，
@@ -267,14 +190,12 @@ function installTouchInteractions(): Disposer {
       if (toggle) toggle.click()
     }, 0)
   }
-  document.addEventListener('touchstart', showTouchedBubble, true)
   document.addEventListener('touchend', onTouchEnd, true)
   document.addEventListener('click', onDocumentClick, true)
   return () => {
-    if (hideTimer) window.clearTimeout(hideTimer)
+    if (hintTimer) window.clearTimeout(hintTimer)
     if (dismissTimer) window.clearTimeout(dismissTimer)
     if (menuTimer) window.clearTimeout(menuTimer)
-    document.removeEventListener('touchstart', showTouchedBubble, true)
     document.removeEventListener('touchend', onTouchEnd, true)
     document.removeEventListener('click', onDocumentClick, true)
   }
@@ -499,8 +420,8 @@ function installModelPillWidth(): Disposer {
   }
 }
 
+/** 全部效果的安装器（顺序无关，各自独立）。 */
 export const installers: Array<() => Disposer> = [
-  installTooltipReanchor,
   installTouchInteractions,
   installAddButtonKeyboardGuard,
   installEnterKeyHint,
