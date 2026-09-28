@@ -63,7 +63,7 @@ node scripts/manifest-standalone.mjs --write   # 写入，PWA 需重新安装后
 ```sh
 npm install          # 唯一 devDependency：esbuild
 npm run build        # src/*.ts → lib/index.js (ESM) + lib/client.js (IIFE)
-npm test             # 离线冒烟 18 项，不需要启动 dsh
+npm test             # 离线冒烟 20 项，不需要启动 dsh
 npm run check        # build + test（改 src/ 后必跑）
 ```
 
@@ -77,10 +77,12 @@ npm run check        # build + test（改 src/ 后必跑）
 - 在 **`node:vm` 里真跑** polyfill：`AbortSignal.any` 传播 abort、`randomUUID` 产出 v4、已有实现不被覆盖
 - 在 **`node:vm` 里按 `__ModuleLoader__` 协议装载**浏览器半：导出合法、`apply()` 装上效果、disposer 后所有 DOM 状态还原
 - 用**官方 `loadOverlayPatches()`** 解析 `cordis.patch.yml`，断言组合包层正确
-- **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、提示词与输入框三组等式、旧重叠 hack 已删；两颗胶囊的底色与输入框卡片同色、带 0.5px 极细描边（box-shadow 画，不用 border）
-- **静态断言悬浮开关**：克隆的是面板图标而不是品牌标记（`querySelector('svg')` 不许出现）、按浮层按钮 token 画（28×28、无描边）、`top` 与宿主展开态侧栏开关重合（`env(safe-area-inset-top) + 22px`）、`:active` 与 `:hover` 同列
+- **静态断言作曲栏版式**：胶囊预留高度 ≥ 28px + 间隔、底行 `flex-wrap: nowrap`、行盒 `container-type: normal`、胶囊带的 `:has` 带 `hidden` 守卫、提示词与输入框三组等式、旧重叠 hack 已删；两颗胶囊的底色与输入框卡片同色、带 0.5px 极细描边（box-shadow 画，不用 border）
+- **静态断言悬浮开关**：克隆的是面板图标而不是品牌标记（`querySelector('svg')` 不许出现）、边缘走与作曲栏胶囊共用的 `--dsh-android-ui-chip-*`（定义在 `body` 上，28×28）、`top` 与页头右上角那颗 ExpandButton 平齐（`env(safe-area-inset-top) + 6px`，页头 `padding-top` 用同一表达式）、`:active` 与 `:hover` 同列
+- **静态断言侧栏设置入口**：`.VOzbGW_trigger` 的底色是 `button-elevated-fill`（透明底会与侧栏 sidebar-fill 同色）、`.5px border-l3` 描边 + 12px 圆角、高度不覆盖（沿用 42px）、规则排除 `.VOzbGW_rail`、`:active` 与 `:hover` 同列且用实色 token
+- **静态断言右栏开合**：整列由本模块驱动（基态 `translateX(100%)` + `visibility:hidden`，打开态 `transform:none` + `visible`，两个触发条件都认，时长/缓动与左抽屉同款），并且要中和宿主给 `[data-dockkit-*]` 的 `transform`、不许靠 `pointer-events` 兜底、reduced-motion 里三条选择器都要列出
 - **静态断言抽屉动画**：收起态是 `transform: translateX(-100%)`（不许退回 `left` 偏移）、时长/缓动用宿主的 300ms + `var(--ds-ease-in-out)`，且列内有 `position:fixed` 弹出层（设置对话框 / Cordis 控制面板）时 `:has` 兜底退回 left 隐藏（reduced-motion 里也要一起关）
-- **宿主类名核对**：已过时的哈希类名（`h8S2Va` / `Md3f7G` 等）不许出现
+- **宿主类名核对**（按去注释后的正文比对）：已过时的哈希类名（`h8S2Va` / `Md3f7G` / `_list_1nxmc_8` / `_bubble_1nw3t_1` 等）不许出现；宿主自己接管定位的 `.JObwrW_panel` / `.QsffPG_menu` / `._7KE1Ra_menu` / `.ZKlsPq_menu` 连规则块都不许有
 
 ## 目录
 
@@ -91,7 +93,7 @@ src/mobile-css.ts    移动端 CSS（模板字符串，≤480px 媒体查询为�
 src/polyfills.ts     启动前 polyfill（AbortSignal.any + crypto.randomUUID）
 lib/                 构建产物（已提交，消费者无需构建）
 scripts/             可选的 PWA manifest 一次性脚本
-test/smoke.mjs       离线冒烟测试（18 项）
+test/smoke.mjs       离线冒烟测试（20 项）
 build.mjs            esbuild 构建脚本
 cordis.patch.yml     组合包 patch 层（insert 一行挂进 profile）
 ```

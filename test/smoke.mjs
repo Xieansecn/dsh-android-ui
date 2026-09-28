@@ -337,11 +337,50 @@ check('抽屉动画：transform 滑动 + 宿主同款时长缓动，列内有 fi
   )
 })
 
-// 悬浮开关的图标来源与尺寸：折叠态下 toggle 里的第一个 svg 是 sidebar.brand.mark
+// 右栏（文件/终端 dock）在手机上：既要能打开（本文件把 frame 压成单列网格后，
+// 右栏列会被自动排进隐式第 2 行 —— 真机实测 (0,844,390,0)，宿主却已经把状态切成
+// "打开"，表现为"点右上角那颗按钮 → 按钮消失、什么都没开"），又要有滑动动画
+// （宿主把滑动做在面板内部的 dock 子元素上，与我们搬运这一列叠在一起 = 观感上
+// "面板瞬间到位、只有内容在动"；宽屏有动画、窄屏没有，用户对比后反馈）。
+// 所以收起/展开整列都由本文件驱动，与左抽屉同一套 300ms + --ds-ease-in-out。
+check('移动端 CSS：右栏由本文件驱动开合（覆盖层 + transform 滑动，收起时移出画布）', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const closed = /\[class\*="_frame"\] > \[class\*="_rightbarCol"\] \{([^}]*)\}/.exec(css)
+  assert.ok(closed, '应有右栏列的基态（收起）规则')
+  for (const decl of ['position: absolute', 'width: 100vw', 'z-index: 41', 'transform: translateX(100%)', 'visibility: hidden']) {
+    assert.ok(closed[1].includes(decl), `右栏收起态缺少 ${decl}`)
+  }
+  assert.ok(
+    /transition: transform var\(--dsh-android-ui-drawer-ms, 300ms\) var\(--ds-ease-in-out/.test(closed[1]),
+    '右栏收起/展开要用与左抽屉同款的时长与缓动',
+  )
+  const open = /\[class\*="_frame"\]\[data-rightbar-fullscreen\] > \[class\*="_rightbarCol"\],[\s\S]{0,200}?\{([^}]*)\}/.exec(css)
+  assert.ok(open, '应有右栏展开规则')
+  assert.ok(/transform: none !important/.test(open[1]), '展开态必须把 transform 清零')
+  assert.ok(/visibility: visible !important/.test(open[1]), '展开态必须让整列可见')
+  assert.ok(
+    /\[class\*="_frame"\]\[data-rightbar-fullscreen\] > \[class\*="_rightbarCol"\]/.test(css) &&
+      /\[class\*="_frame"\]:not\(\[data-rightbar-collapsed\]\) > \[class\*="_rightbarCol"\]/.test(css),
+    '两个打开触发条件都要认（390px 实测打开态是 collapsed 仍在 + fullscreen 新增）',
+  )
+  // 宿主自己做在 dock 子元素上的那层滑动必须中和，否则与本列的 transform 叠成两倍速。
+  const neutral = /\[class\*="_frame"\] > \[class\*="_rightbarCol"\] \[data-dockkit-host=dock\],[\s\S]{0,240}?\{([^}]*)\}/.exec(css)
+  assert.ok(neutral && /transform: none !important/.test(neutral[1]), '要中和宿主给 dock 子元素的 transform')
+  assert.ok(!/pointer-events/.test(closed[1]), '收起态靠 translateX(100%) 移出画布，不需要 pointer-events 兜底')
+  // reduced-motion 里右栏也要一起关（本文件驱动的东西一律尊重该设置）。
+  const reduce = /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/.exec(css)
+  assert.ok(reduce, '应能找到 prefers-reduced-motion 块')
+  assert.ok(
+    (reduce[0].match(/\[class\*="_rightbarCol"\]/g) || []).length >= 3,
+    'reduced-motion 里右栏的三条选择器都要列出（基态 + 两个打开态）',
+  )
+})
+
+// 悬浮开关的图标来源、尺寸与外观：折叠态下 toggle 里的第一个 svg 是 sidebar.brand.mark
 // 槽位的品牌标记（鱼 logo），克隆它就成了"左上角一个鱼按钮"（用户实测反馈）。
-// 要的是宿主自己的面板图标；外观用应用自己的浮层按钮 token（悬在内容上，纯图标
-// 无底色会被读成"飘着的图标"而不是按钮），尺寸与页头右上角那颗 ExpandButton 一致。
-check('悬浮开关：克隆面板图标（非品牌标记）、按浮层 token 画、尺寸与右上角那颗一致', () => {
+// 要的是宿主自己的面板图标；边缘用与作曲栏（输入框卡片 + 权限/模型两颗胶囊）**同一对
+// 变量**，纵向位置与页头右上角那颗文件预览入口（ExpandButton）平齐。
+check('悬浮开关：克隆面板图标（非品牌标记）、边缘同作曲栏、与右上角那颗平齐', () => {
   const css = host.injectionRows().find((row) => row.kind === 'style').text
   const bundle = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
   assert.ok(bundle.includes('.hHd-Xa_panelIcon'), '应从 toggle 里取 .hHd-Xa_panelIcon')
