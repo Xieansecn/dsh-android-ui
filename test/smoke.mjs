@@ -268,6 +268,9 @@ check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
     // 0.1.7-rc.2 换掉的（0.1.5-rc.1 的值）：下拉列表类名与 tooltip 气泡类名。
     '_list_1nxmc_8',
     '_bubble_1nw3t_1',
+    // 0.2.0-rc.2 又换掉同一对（同一版本号重新发布也会换哈希）。
+    '_list_gzo7u_7',
+    '_bubble_ugtpz_1',
   ]) {
     for (const text of texts) {
       assert.ok(!text.includes(stale), `旧哈希类名 ${stale} 应已按新构建更新`)
@@ -275,8 +278,9 @@ check('构建产物里没有已被宿主换掉的旧哈希类名', () => {
   }
   const css = texts[0]
   const bundle = texts[1]
-  assert.ok(css.includes('._list_gzo7u_7'), '下拉列表的不出屏规则应挂在 0.1.7-rc.2 的 ._list_gzo7u_7 上')
-  assert.ok(bundle.includes('._bubble_ugtpz_1'), 'tooltip 探针应指向 0.1.7-rc.2 的 ._bubble_ugtpz_1')
+  assert.ok(css.includes('._list_4ub78_7'), '下拉列表的不出屏规则应挂在 0.2.0-rc.2 的 ._list_4ub78_7 上')
+  assert.ok(bundle.includes('._bubble_12mhf_1'), 'tooltip 探针应指向 0.2.0-rc.2 的 ._bubble_12mhf_1')
+  assert.ok(css.includes('.eGxaPq_frame'), '轮次索引轨的显示覆盖应挂在 0.2.0-rc.2 的 .eGxaPq_* 上')
   // 宿主自己接管定位的那批（子代理/后台任务/模型菜单、用量上下文面板、tooltip 气泡）：
   // 它们现在都是 createPortal（或条件渲染）+ JS 算坐标 + 内联 style，本文件再写
   // left/right/top 的 !important 会盖掉内联值（!important 赢过内联）→ 菜单/面板跑偏。
@@ -434,6 +438,76 @@ check('悬浮开关：克隆面板图标（非品牌标记）、边缘同作曲�
     /width:\s*15px/.test(glyph[1]) && /height:\s*15px/.test(glyph[1]),
     '字形 15px，与右上角那颗 ExpandButton 一致',
   )
+})
+
+// 轮次索引轨（原型 agent_chat_scroll_prototype.html 的右时间轴）在竖屏是**自绘**的：
+// 宿主 TurnNavigator 只当引擎 + 预览层（刻度 opacity:0、整条 frame pointer-events:none），
+// 可见可拖的那条由浏览器半按原型的 .rail/.tick/.position 逐条实现。
+check('轮次索引轨：宿主让位成引擎、自绘轨道照原型铺满 + 右缘热区 + 减弱动效', () => {
+  const css = host.injectionRows().find((row) => row.kind === 'style').text
+  const mobile = css.slice(css.indexOf('@media (max-width: 480px)'))
+  // 宿主 frame：常驻显示（预览卡要能被看到）但不能吃触摸 —— 后者漏 !important 就是
+  // "看不见但吃触摸 / 只能点不能滑"（宿主 CSS 是运行期 append 到 head 的，同档它赢）。
+  const frame = /\.eGxaPq_frame \{([^}]*)\}/.exec(mobile)
+  assert.ok(frame, '应给出宿主 frame 的接管规则')
+  assert.ok(/display: block !important/.test(frame[1]), '宿主用容器查询隐藏它，窄屏要覆盖成常驻布局')
+  assert.ok(/opacity: 1/.test(frame[1]), 'frame 要可见，里面的预览卡才看得见')
+  assert.ok(/pointer-events: none !important/.test(frame[1]), 'frame 不能再吃指针（漏 !important 会被宿主的 auto 顶掉）')
+  // 加长：宿主的 frame **高度本来是内容高度**（= 刻度总长，8 轮只有 82px），只覆盖
+  // max-height 根本量不到 —— 必须给确定的 height 并放掉它那条 420px 上限；自绘轨道的几何
+  // 是从这条 frame 的 rect 抄的，所以两边一起变长、刻度才会铺满（真机"缩在中间"的根因）。
+  assert.ok(
+    /height: max\(0px, calc\(var\(--turn-rail-band, 100dvh\) - 40px\)\) !important/.test(frame[1]),
+    'frame 要给确定的 height（不能只覆盖 max-height）',
+  )
+  assert.ok(/max-height: none !important/.test(frame[1]), '要放掉宿主那条 420px 的 max-height，否则 height 被截断')
+  const scrollerRule = /\.eGxaPq_scroller \{([^}]*)\}/.exec(mobile)
+  assert.ok(scrollerRule && /max-height: 100% !important/.test(scrollerRule[1]), '滚动容器要填满 frame（虚拟化视口更高、渐隐遮罩才有意义）')
+  // 宿主刻度：用 opacity 藏（不能用 display:none —— 节距与内边距要从 rect 量）。
+  const mark = /\.eGxaPq_mark \{([^}]*)\}/.exec(mobile)
+  assert.ok(mark && /opacity: 0/.test(mark[1]), '宿主刻度要藏起来（自绘轨道接管画面）')
+  assert.ok(!/display: none/.test(mark[1]), '不能用 display:none：rect 会全变 0，量不出换算关系')
+  // 自绘轨道：66px 贴右缘、几何由浏览器半写的变量给、抽出是原型的 75px 滑入 + 450ms。
+  const rail = /\[data-dsh-rail\] \{([^}]*)\}/.exec(mobile)
+  assert.ok(rail, '应有自绘索引轨的规则块')
+  assert.ok(/width: 66px/.test(rail[1]), '宽度照原型 66px')
+  assert.ok(/top: var\(--dsh-rail-top/.test(rail[1]) && /height: var\(--dsh-rail-h/.test(rail[1]), '几何从宿主 frame 的实测 rect 抄过来')
+  assert.ok(/transform: translateX\(75px\)/.test(rail[1]), '收起态照原型整条右移 75px')
+  assert.ok(/transition: transform \.45s cubic-bezier\(\.22, 1, \.36, 1\)/.test(rail[1]), '抽出用原型的 450ms 缓动')
+  const shown = /html\[data-dsh-rail-revealed\] \[data-dsh-rail\] \{([^}]*)\}/.exec(mobile)
+  assert.ok(shown, '抽出态应有单独规则')
+  assert.ok(/transform: none/.test(shown[1]) && /opacity: 1/.test(shown[1]), '抽出后回到原位并显形')
+  // 抽出后轨道**仍然不接指针**：输入面永远是右缘那条热区，热区宽度两态一致 ——
+  // 否则"隐藏时窄、抽出后 66px"，窄了压不准（"不能被触发"）、宽了吃掉正文滚动（"误触"）。
+  assert.ok(!/pointer-events: auto/.test(shown[1]), '自绘轨道常驻 pointer-events:none（只是显示面）')
+  assert.ok(!/touch-action/.test(shown[1]), '轨道的 touch-action 也不该在抽出态被改')
+  // 刻度带：space-between 铺满（原型 .rail-lines），条数由浏览器半按"每根至少 11px"重算。
+  const lines = /\[data-dsh-rail-lines\] \{([^}]*)\}/.exec(mobile)
+  assert.ok(lines, '应有刻度带规则')
+  assert.ok(/justify-content: space-between/.test(lines[1]), '刻度要铺满整条轨道（原型的间距自适应）')
+  assert.ok(/inset: 18px 0/.test(lines[1]), '刻度带上下留 18px（照原型）')
+  // 拖动中预览卡要跟着我们的刻度走（宿主那套固定节距几何与 space-between 的刻度对不上）。
+  const cardRule = /html\[data-dsh-rail-dragging\] \.eGxaPq_preview \{([^}]*)\}/.exec(mobile)
+  assert.ok(cardRule, '应有"拖动中预览卡跟指示器"的规则')
+  assert.ok(/top: clamp\(/.test(cardRule[1]), '覆盖的是 top（宿主的 top 在样式表规则里，!important 盖得住）')
+  assert.ok(/--dsh-rail-card-y/.test(cardRule[1]) && /!important/.test(cardRule[1]), '用我们写下的 y，并带 !important')
+  // 读数只在拖动中显示（原型 .dragging .position）。
+  assert.ok(
+    /html\[data-dsh-rail-dragging\] \[data-dsh-rail-pos\] \{[^}]*opacity: 1/.test(mobile),
+    '当前轮读数只在拖动时出现',
+  )
+  // 右缘热区。
+  const edge = /\[data-dsh-rail-edge\] \{([^}]*)\}/.exec(mobile)
+  assert.ok(edge, '应有右缘热区规则')
+  assert.ok(edge && /touch-action: none/.test(edge[1]), '热区要常驻 touch-action:none，否则拖动会被页面滚动收走')
+  assert.ok(/width: 24px/.test(edge[1]), '热区 24px（= 上限，与作曲栏发送键右缘齐平）：12/20px 都不够好按')
+  assert.ok(!/pan-y/.test(mobile), '不能再出现 pan-y：浏览器会把竖向拖动当滚动收走，手势链直接断掉')
+  assert.ok(/z-index: 8/.test(edge[1]), '热区层级高于自绘轨道、低于抽屉(40)/右栏(41)/遮罩(39)')
+  // 减弱动效：抽出、哑铃、读数都要一起关（特异性更高的规则不会替它们关）。
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+  for (const selector of ['[data-dsh-rail],', '[data-dsh-rail] i,', '[data-dsh-rail-pos]']) {
+    assert.ok(reduced.includes(selector), `减弱动效里应列出 ${selector}`)
+  }
 })
 
 check('viewport 内容含 viewport-fit=cover 与 interactive-widget', () => {
@@ -645,7 +719,9 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
       childNodes: [],
       attrs: new Map(),
       listeners: new Map(),
-      style: {},
+      // 自绘索引轨会用 style.setProperty 写几何变量（--dsh-rail-top/-h），
+      // 所以桩的 style 要是真的 styleStub（styleStub 在本函数之后定义，调用时已就绪）。
+      style: styleStub(),
       setAttribute(k, v) {
         this.attrs.set(k, v)
       },
@@ -856,7 +932,7 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   assert.equal(typeof clientModule.apply, 'function')
   assert.equal(clientModule.inject.length, 0, 'inject 应为空数组（无服务依赖）')
   // 效果清单：tooltip 重吸附已随 0.1.7-rc.2 宿主自接管定位而删除（同子代理下拉），
-  // 剩下的六条各自独立。多一条少一条都要在这里显式改。
+  // 剩下的七条各自独立。多一条少一条都要在这里显式改。
   // 跨 realm：vm 里的数组原型不同，deepEqual 会误报，所以比字符串。
   assert.equal(
     clientModule.installers.map((fn) => fn.name).join(','),
@@ -867,8 +943,9 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
       'installKeyboardFollow',
       'installSidebarFab',
       'installModelPillWidth',
+      'installTurnRailScrub',
     ].join(','),
-    '效果清单应与本文件/文档列出的六条一致（删掉 tooltip 重吸附后不再增删）',
+    '效果清单应与本文件/文档列出的七条一致（删掉 tooltip 重吸附后只增了轮次索引轨）',
   )
   // 卸载发生在 load 之前：deferred 安装必须被 cancelled 标记挡住，迟到的 load 不能
   // 把已经停掉的插件重新唤醒（否则插件停用后页面还会被改）。
@@ -898,7 +975,9 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   listeners.get('w:load')?.()
   assert.ok(observers.length >= 1, 'load 后应安装 MutationObserver')
   assert.ok(listeners.size >= 3, 'load 后应安装 DOM/visualViewport 监听')
-  assert.equal(documentStub.body.childNodes.length, 1, 'load 后应注入悬浮侧栏开关按钮')
+  // 三颗注入元素：悬浮侧栏开关（先装，childNodes[0]）、轮次索引轨的自绘轨道
+  // （childNodes[1]）与它的右缘热区（childNodes[2]）。
+  assert.equal(documentStub.body.childNodes.length, 3, 'load 后应注入悬浮开关、自绘索引轨与右缘热区')
   // 图标必须来自面板图标（与页头右上角那颗同款），不是品牌鱼 logo；克隆时剥掉宿主
   // 类名（右上角那颗是 scaleX(-1) 镜像版，留着会让字形翻向）。点击转发给宿主开关。
   const fabStub = documentStub.body.childNodes[0]
@@ -916,6 +995,259 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   modesStub.width = 150
   resizeObservers[0].cb()
   assert.equal(cardStub.style.getPropertyValue('--dsh-modes-w'), '150px', '权限胶囊变宽后应重写变量')
+  // 轮次索引轨（竖屏）：自绘轨道负责画面与手势，宿主轨道降级成"引擎 + 预览层"。
+  // 这里用桩走一遍完整链路：滚动探头（量几何/排刻度）→ 右缘按下即抽出 → 在自绘轨道上
+  // 拖动 = 定位（换算成宿主轮次下标、滚宿主容器、喂预览、画哑铃与读数）→ 松手点一次
+  // 宿主刻度落定；再验证键盘、轻点、以及"拖动中不会被点击打断"的结构性保证。
+  const railMarks = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+    // 宿主的轮次号只出现在 aria-label 里（t('chat.turnNavigation.jump', {turn})）；
+    // 最后一根刻意写成 9，用来断言读数/正文跟随走的是轮次号而不是 data-index + 1。
+    attrs: new Map([
+      ['data-index', String(i)],
+      ['aria-label', i === 7 ? '跳转到第 9 轮' : `跳转到第 ${i + 1} 轮`],
+    ]),
+    style: styleStub(),
+    dispatched: [],
+    clicked: 0,
+    getAttribute(k) {
+      return this.attrs.get(k) ?? null
+    },
+    // 内容坐标 = 1 + i*10（宿主的内边距 1px + 10px 节距），屏幕位再减 scrollTop。
+    getBoundingClientRect() {
+      return { top: 100 + 1 + i * 10 - railScrollerStub.scrollTop, bottom: 110 + i * 10 - railScrollerStub.scrollTop }
+    },
+    dispatchEvent(event) {
+      this.dispatched.push(event)
+      return true
+    },
+    click() {
+      this.clicked += 1
+    },
+  }))
+  const railMarksBox = {
+    // 宿主把 totalSize 写成刻度容器的 inline height —— 这是"总轮数"的首选来源
+    // （scrollHeight 在内容比视口矮时会被视口撑大）。
+    style: { height: '82px' },
+    children: railMarks,
+    querySelectorAll: () => railMarks,
+    querySelector: (sel) => railMarks.find((mark) => sel.includes(`data-index="${mark.getAttribute('data-index')}"`)) ?? null,
+  }
+  const railFrameStub = makeNode('nav')
+  railFrameStub.isConnected = true
+  railFrameStub.getBoundingClientRect = () => ({ top: 64, height: 420 })
+  // 转录容器与"每一轮的行"（宿主给每个 flow item 挂 data-chat-turn="轮次号"）。
+  // 行在屏上的位置 = 容器顶 + 内容坐标 - scrollTop；这里把第 9 轮那一行放得很靠下，
+  // 好让"对齐到 anchorY"真的产生一次 scrollTop 写入。
+  const transcriptStub = makeNode('div')
+  transcriptStub.isConnected = true
+  // 行查询现在是"限定在会话滚动容器内"的，所以容器自己要能 querySelector。
+  transcriptStub.querySelector = (sel) => {
+    const found = /data-chat-turn="(\d+)"/.exec(sel)
+    return found ? (rows.find((row) => String(row.turn) === found[1]) ?? null) : null
+  }
+  transcriptStub.querySelectorAll = () => rows
+  transcriptStub.scrollTop = 0
+  transcriptStub.clientHeight = 600
+  transcriptStub.getBoundingClientRect = () => ({ top: 120, bottom: 720 })
+  const rowStub = (turn, contentTop) => {
+    const node = {
+      attrs: new Map([['data-chat-turn', String(turn)]]),
+      getAttribute(k) {
+        return this.attrs.get(k) ?? null
+      },
+      setAttribute(k, v) {
+        this.attrs.set(k, v)
+      },
+      removeAttribute(k) {
+        this.attrs.delete(k)
+      },
+      hasAttribute(k) {
+        return this.attrs.has(k)
+      },
+      getBoundingClientRect: () => ({ top: 120 + contentTop - transcriptStub.scrollTop, bottom: 180 + contentTop }),
+    }
+    node.turn = turn
+    return node
+  }
+  const rows = [rowStub(1, 80), rowStub(9, 780)]
+  const railScrollerStub = makeNode('div')
+  railScrollerStub.isConnected = true
+  railScrollerStub.scrollTop = 0
+  railScrollerStub.clientHeight = 60
+  railScrollerStub.scrollHeight = 82 // 8 轮 × 10px 节距 + 上下各 1px 内边距
+  railScrollerStub.getBoundingClientRect = () => ({ top: 100, bottom: 160 })
+  const railQuery = documentStub.querySelector
+  documentStub.querySelector = (sel) => {
+    if (sel === '.eGxaPq_frame') return railFrameStub
+    if (sel === '.eGxaPq_scroller') return railScrollerStub
+    if (sel === '.eGxaPq_marks') return railMarksBox
+    if (sel.includes('_scrollBody') || sel.includes('data-conversation-scroll')) return transcriptStub
+    if (sel.includes('data-chat-turn')) {
+      const found = /data-chat-turn="(\d+)"/.exec(sel)
+      return found ? (rows.find((row) => String(row.turn) === found[1]) ?? null) : null
+    }
+    return railQuery(sel)
+  }
+  // 自绘轨道本体（childNodes[1]）与右缘热区（childNodes[2]）。
+  const railRootStub = documentStub.body.childNodes[1]
+  const zoneStub = documentStub.body.childNodes[2]
+  assert.ok(railRootStub.hasAttribute('data-dsh-rail'), '应注入自绘索引轨（childNodes[1]）')
+  assert.ok(zoneStub.hasAttribute('data-dsh-rail-edge'), '应注入右缘热区（childNodes[2]）')
+  assert.equal(zoneStub.getAttribute('role'), 'slider', '热区要扛 role=slider（宿主刻度被让位后，无障碍路径在这里）')
+  const railLinesStub = railRootStub.childNodes[0]
+  const railPosStub = railRootStub.childNodes[3]
+  assert.ok(railLinesStub.hasAttribute('data-dsh-rail-lines'), '自绘轨道里应有刻度带')
+  assert.ok(railPosStub.hasAttribute('data-dsh-rail-pos'), '自绘轨道里应有当前轮读数')
+  // 自绘轨道上的"手指落点"桩：它不是宿主的可点元素，这正是"滑动不会被点击打断"的前提。
+  const railTouchStub = { nodeType: 1, closest: () => null }
+  railRootStub.contains = (node) => node === railTouchStub
+  const outsideStub = { nodeType: 1, closest: () => null }
+  const zoneTarget = { nodeType: 1, closest: (sel) => (sel.includes('data-dsh-rail-edge') ? {} : null) }
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    assert.equal(typeof listeners.get(type), 'function', `应在 document 捕获阶段监听 ${type}`)
+  }
+  assert.equal(typeof listeners.get('scroll'), 'function', '应挂滚动探头（capture）')
+  // 不在轨道/热区上的拖动：一律不进定位。
+  listeners.get('pointerdown')({ target: outsideStub, pointerId: 9, clientX: 100, clientY: 120 })
+  listeners.get('pointermove')({ target: outsideStub, pointerId: 9, clientX: 100, clientY: 260 })
+  assert.equal(htmlElement.attrs.has('data-dsh-rail-revealed'), false, '不在起手面上的拖动不该抽出轨道')
+  listeners.get('pointerup')({ target: outsideStub, pointerId: 9 })
+  // 滚一下对话 → 抽出索引轨，并把宿主 frame 的几何抄给自绘轨道、按高度排好刻度。
+  railLinesStub.getBoundingClientRect = () => ({ top: 82, height: 384 })
+  listeners.get('scroll')({ target: { nodeType: 1, matches: () => true } })
+  assert.ok(htmlElement.attrs.has('data-dsh-rail-revealed'), '滚动对话应让索引轨探头')
+  assert.equal(railRootStub.style.getPropertyValue('--dsh-rail-top'), '64px', '自绘轨道的 top 应抄宿主 frame')
+  assert.equal(railRootStub.style.getPropertyValue('--dsh-rail-h'), '420px', '自绘轨道的高应抄宿主 frame')
+  // 刻度条数照原型 rebuildTicks()：min(轮次总数, max(2, min(39, floor(h/11)+1)))，h=384 → 35，取 8 轮。
+  assert.equal(railLinesStub.childNodes.length, 8, '刻度条数应取"高度能放下的条数"与轮次总数的较小者')
+  assert.equal(railRootStub.childNodes[2].textContent, '8', '尾号按原型写裸总数（first 才是 01）')
+  // 右缘：手指一放上去就抽出（按住不动不会从手指底下淡出），松手不跳会话。
+  htmlElement.removeAttribute('data-dsh-rail-revealed')
+  listeners.get('pointerdown')({ target: zoneTarget, pointerId: 3, clientX: 388, clientY: 82 })
+  assert.ok(htmlElement.attrs.has('data-dsh-rail-revealed'), '手指放到右缘应立即抽出索引轨')
+  assert.equal(railMarks[0].clicked, 0, '光放在右缘不该跳会话')
+  // 从热区顺势下拖：越过 4px 阈值才算拖动定位。
+  listeners.get('pointermove')({ target: zoneTarget, pointerId: 3, clientX: 380, clientY: 100 })
+  assert.ok(htmlElement.attrs.has('data-dsh-rail-dragging'), '拖起来后应进入拖动态（读数才显示）')
+  // 指尖在最上方 → 进度 0 → 第 1 轮；宿主容器被滚到对应位置、预览卡跟过来。
+  assert.equal(railPosStub.textContent, '01', '读数应跟着选中项走')
+  assert.equal(zoneStub.getAttribute('aria-valuemax'), '8', 'aria-valuemax 应是量出来的轮次总数')
+  assert.equal(zoneStub.getAttribute('aria-valuenow'), '1', 'aria-valuenow 应跟着选中项走')
+  assert.equal(railMarks[0].dispatched.at(-1)?.type, 'pointermove', '应把选中刻度喂给宿主的预览路径')
+  assert.equal(railMarks[0].dispatched.at(-1)?.bubbles, true, '补发的 pointermove 必须冒泡（宿主在根上监听）')
+  // 拖到最下方 → 进度 1 → 最后一轮（换算不依赖"那颗刻度此刻有没有被虚拟化挂上"）。
+  listeners.get('pointermove')({ target: zoneTarget, pointerId: 3, clientX: 380, clientY: 466 })
+  // 读数走"宿主轮次号"（最后一根刻度的 aria-label 写的是 9），不是 data-index + 1。
+  assert.equal(railPosStub.textContent, '09', '拖到底应选到最后一轮，且读数用宿主的轮次号')
+  assert.equal(zoneStub.getAttribute('aria-valuenow'), '9', 'aria-valuenow 同样用轮次号')
+  assert.equal(railScrollerStub.scrollTop, 22, '宿主轨道容器应被滚到该轮（8 轮内容高 82 - 视口 60）')
+  // 实时指示消息：正文里这一轮的行被对齐到 anchorY = 24 + p×min(100, 视口高×0.16)，
+  // 并且被打上 [data-dsh-rail-target] 标记（原型 .scrubbing .user.selected 的对应物）。
+  // 第 9 轮的行内容坐标 780，视口 600 → anchor = 24 + 96 = 120 → scrollTop = 780 - 120 = 660。
+  assert.equal(transcriptStub.scrollTop, 660, '拖动中正文应实时对齐到选中轮（原型 align()）')
+  assert.equal(transcriptStub.style.overflowAnchor, 'none', '拖动期间要临时关掉浏览器滚动锚定（内容增长时它会自己挪 scrollTop）')
+  assert.equal(htmlElement.style['--dsh-rail-card-y'], '402px', '拖动中要写下指示器的 y 给预览卡用（18 + p×刻度带高）')
+  assert.ok(rows[1].hasAttribute('data-dsh-rail-target'), '选中轮那一行应被打上落点标记')
+  assert.equal(rows[0].hasAttribute('data-dsh-rail-target'), false, '没被选中的行不该带标记')
+  assert.equal(typeof listeners.get('wheel'), 'function', '应挂"用户接管"监听（原型 L62）')
+  assert.equal(typeof listeners.get('touchstart'), 'function', '应挂"用户接管"监听（原型 L62）')
+  assert.equal(typeof listeners.get('keydown'), 'function', '键盘输入也要能接管（宿主 READING_INTENTS 同口径）')
+  assert.equal(railMarks[7].clicked, 0, '拖动过程中绝不能点任何宿主刻度（这正是"滑到一半跳轮"的根因）')
+  const painted = railLinesStub.childNodes.map((tick) => tick.style.width)
+  assert.ok(painted.includes('33px'), '选中处应吃到满宽 33px（原型 9+24*s²）')
+  assert.ok(painted.filter((w) => w === '9px').length >= 4, '远处刻度回到基准 9px（渐强只覆盖四根）')
+  listeners.get('pointerup')({ target: zoneTarget, pointerId: 3 })
+  assert.equal(railMarks[7].clicked, 1, '松手才点一次宿主刻度落定（未加载轮次由宿主先分页）')
+  assert.equal(railMarks[7].dispatched.at(-1)?.type, 'pointerout', '收尾要撤掉宿主的预览卡')
+  assert.equal(htmlElement.attrs.has('data-dsh-rail-dragging'), false, '松手要退出拖动态')
+  assert.equal(rows[1].hasAttribute('data-dsh-rail-target'), false, '松手要撤掉落点标记')
+  assert.equal(htmlElement.style['--dsh-rail-card-y'], '', '松手要撤掉预览卡的 y 变量')
+  assert.equal(transcriptStub.style.overflowAnchor, '', '松手要还原滚动锚定')
+  const holdRaf = [...rafs.values()].at(-1)
+  assert.equal(typeof holdRaf, 'function', '松手后应排一帧做漂移纠正')
+  holdRaf()
+  // 780(行内容坐标) - 24 = 756：松手后的锚点换成宿主落位用的那个 24px，
+  // 否则我们按 24+p×ratio 写、它按 24 落位，430ms 里会互相拉。
+  assert.equal(transcriptStub.scrollTop, 756, '松手后的钉住要用宿主那套 24px 锚点')
+  // 两段式的第二段：轨道**已经抽出**时，"点一下不拖"= 松手跳到指尖那根刻度。
+  // y=180：progress=(180-82)/384≈0.255 → round(0.255×7)=2 → 第 3 轮。
+  const clickedBeforeTap = railMarks.reduce((n, m) => n + m.clicked, 0)
+  assert.ok(htmlElement.attrs.has('data-dsh-rail-revealed'), '此时轨道应显示着（上一步的拖动留下的）')
+  const posBeforeTap = railPosStub.textContent
+  listeners.get('pointerdown')({ target: zoneTarget, pointerId: 6, clientX: 386, clientY: 180 })
+  assert.equal(railPosStub.textContent, posBeforeTap, '按下瞬间不该先跳（观感突然、也像误触）')
+  assert.equal(railMarks[2].clicked, 0, '按下不落定')
+  listeners.get('pointerup')({ target: zoneTarget, pointerId: 6 })
+  assert.equal(railPosStub.textContent, '03', '松手才落到指尖那根刻度（点一下不拖）')
+  assert.equal(
+    railMarks.reduce((n, m) => n + m.clicked, 0),
+    clickedBeforeTap + 1,
+    '只落定一次',
+  )
+  assert.equal(railMarks[2].clicked, 1, '落定的应是第 3 轮那根刻度')
+  // 按在自绘轨道本体上（不是热区）不该起手 —— 它只是显示面。
+  const posBeforeRailPress = railPosStub.textContent
+  listeners.get('pointerdown')({ target: railTouchStub, pointerId: 4, clientX: 366, clientY: 82 })
+  listeners.get('pointermove')({ target: railTouchStub, pointerId: 4, clientX: 366, clientY: 240 })
+  assert.equal(railPosStub.textContent, posBeforeRailPress, '按在轨道本体上不该起手定位')
+  listeners.get('pointerup')({ target: railTouchStub, pointerId: 4 })
+  // 键盘：宿主刻度让位后无障碍路径在热区上（keydown 移动、keyup 落定，长按连发只跳一次）。
+  zoneStub.listeners.get('keydown')({ key: 'Home', preventDefault: () => {} })
+  assert.equal(railPosStub.textContent, '01', 'Home 应回到第 1 轮')
+  zoneStub.listeners.get('keydown')({ key: 'ArrowDown', preventDefault: () => {} })
+  assert.equal(railPosStub.textContent, '02', 'ArrowDown 应移向下一轮')
+  assert.equal(railMarks[1].clicked, 0, 'keydown 不落定')
+  zoneStub.listeners.get('keydown')({ key: 'End', preventDefault: () => {} })
+  assert.equal(railPosStub.textContent, '09', 'End 应跳到最后一轮（读数用轮次号）')
+  const clicksBeforeKeyup = railMarks[7].clicked
+  zoneStub.listeners.get('keyup')({})
+  assert.equal(railMarks[7].clicked, clicksBeforeKeyup + 1, 'keyup 才落定一次（keydown 期间不落定）')
+  assert.equal(railMarks[1].clicked, 0, '途中经过的第 2 轮不该被落定')
+  // 选中轮正在加载（宿主 busyTurn → 刻度 aria-busy）时不写 scrollTop：分页期间它的
+  // preserve() 会把我们的值精确回滚，写了等于白写还顺带打断它的锚点。
+  railMarks[7].attrs.set('aria-busy', 'true')
+  listeners.get('pointerdown')({ target: zoneTarget, pointerId: 5, clientX: 386, clientY: 82 })
+  const beforeBusy = transcriptStub.scrollTop
+  listeners.get('pointermove')({ target: zoneTarget, pointerId: 5, clientX: 386, clientY: 466 })
+  assert.equal(transcriptStub.scrollTop, beforeBusy, '这一轮正在加载时不该写 scrollTop')
+  listeners.get('pointerup')({ target: zoneTarget, pointerId: 5 })
+  railMarks[7].attrs.delete('aria-busy')
+  // 先让"用户接管"生效（原型 L62）：settle 还钉着的时候读者的滚动不该抢指示器，
+  // 这也是宿主 READING_INTENTS 的口径 —— wheel 一来就把控制权交还。
+  listeners.get('wheel')({})
+  // 读者自己滚（没碰轨道）时指示器要跟着走 —— 原型 L60 的 scroll 处理：
+  // probe = scrollTop + 视口高 × 0.28，二分找 probe 落在哪一轮，再折算成轨道进度。
+  railPosStub.textContent = ''
+  transcriptStub.scrollTop = 0
+  // 前面的"探头滚动"也排过 reader 帧但没人跑它们，而 reader 帧是单飞的（已排就不再排）——
+  // 真机上这些帧会自己跑掉，测试里得先把积压的帧跑干，否则新的排不进来。
+  for (const fn of [...rafs.values()]) fn()
+  rafs.clear()
+  // 只跑"这次滚动新排的那一帧"：rafs 里可能还有别的效果排的帧，取最后一个新键。
+  const readerTick = (action) => {
+    const before = new Set(rafs.keys())
+    action()
+    const added = [...rafs.keys()].filter((key) => !before.has(key))
+    assert.ok(added.length >= 1, '读者滚动应排一帧更新指示器')
+    rafs.get(added[added.length - 1])()
+  }
+  readerTick(() =>
+    listeners.get('scroll')({ target: { nodeType: 1, matches: (sel) => sel.includes('data-conversation-scroll') } }),
+  )
+  assert.equal(railPosStub.textContent, '01', '停在顶部时指示器应指向第 1 轮')
+  // 滚到第 9 轮所在的位置：probe 落到那一行 → 读数与 aria 一起变。
+  transcriptStub.scrollTop = 700
+  readerTick(() =>
+    listeners.get('scroll')({ target: { nodeType: 1, matches: (sel) => sel.includes('data-conversation-scroll') } }),
+  )
+  assert.equal(railPosStub.textContent, '09', '滚到第 9 轮时指示器应跟过去')
+  assert.equal(zoneStub.getAttribute('aria-valuenow'), '9', 'aria-valuenow 也要跟')
+  assert.equal(transcriptStub.scrollTop, 700, '读者自己滚动时绝不反过来写 scrollTop')
+  assert.equal(rows[1].hasAttribute('data-dsh-rail-target'), false, '读者滚动不打拖动落点标记')
+  transcriptStub.scrollTop = 0
+  const tickW = railLinesStub.childNodes[0].style.width
+  assert.ok(typeof tickW === 'string' && tickW.endsWith('px'), '刻度宽度由浏览器半写（原型同款）')
+  documentStub.querySelector = railQuery
   // 捕获阶段的"点会话行收起抽屉"判定：行内控件（三点菜单）不能算点行本身，
   // 否则菜单刚弹就被插件收掉抽屉（真机复现过）。这里只看两种情况是否安排收起。
   let scheduled = 0
@@ -984,7 +1316,7 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   timers.pop()()
   assert.equal(hintEvents.length, 1, '气泡没弹出时应补发一次 mouseover')
   assert.equal(hintEvents[0].type, 'mouseover', '补发的必须是宿主 hover 路径认的 mouseover')
-  documentStub.querySelector = (sel) => (sel === '._bubble_ugtpz_1' ? {} : realQuery(sel))
+  documentStub.querySelector = (sel) => (sel === '._bubble_12mhf_1' ? {} : realQuery(sel))
   listeners.get('touchend')({ target: hintTarget })
   timers.pop()()
   assert.equal(hintEvents.length, 1, '气泡已开时不应重复补发')
@@ -1002,7 +1334,9 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   dispose()
   assert.equal(observers.length, 0, '卸载应断开全部 observer')
   assert.equal(listeners.size, 0, '卸载应移除全部监听')
-  assert.equal(documentStub.body.childNodes.length, 0, '卸载应摘掉注入的悬浮按钮')
+  assert.equal(documentStub.body.childNodes.length, 0, '卸载应摘掉注入的悬浮开关、自绘索引轨与右缘热区')
+  assert.equal(htmlElement.attrs.has('data-dsh-rail-revealed'), false, '卸载应清掉索引轨的抽出标记')
+  assert.equal(railMarks.some((mark) => mark.style.getPropertyValue('--dsh-rail-grip') !== ''), false, '卸载应清掉刻度上的渐强变量')
   assert.equal(htmlElement.style.height, '', '卸载应还原 html 高度')
   assert.equal(htmlElement.attrs.has('data-dsh-kb-open'), false, '卸载应清掉键盘标记')
   assert.equal(resizeObservers.length, 0, '卸载应断掉 ResizeObserver')

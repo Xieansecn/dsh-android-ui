@@ -38,6 +38,7 @@ Two kinds of fixes, so two halves — split by *timing*, not by size:
 | 作曲栏细节 | "+" 号不唤起键盘、`enterkeyhint=newline` 让安卓输入法显示"换行"、模型胶囊按权限胶囊的实测宽度决定何处省略 / "+" no longer pops the IME, `enterkeyhint=newline`, and the model pill sizes itself against the measured permission pill |
 | activity 状态不占位 | 生成期间宿主把胶囊整组藏起来，胶囊带那 36px 预留一起撤掉，不留一条白带 / while generating, the reserved 36px strip goes away with the hidden pills |
 | 侧栏设置入口 | 抽屉底部那颗「设置」原来是透明底、与抽屉背景同色，改成跟「新建会话」同一套（`button-elevated-fill` 底 + `.5px` 描边 + 42px 整行）/ the settings entry was transparent-on-transparent; now it uses the same fill and hairline border as "new session" |
+| 轮次索引轨（手指拖动定位） | 宿主自己的 `TurnNavigator` 在窄屏被它的容器查询整块隐藏，刻度又是固定 10px 节距的按钮（滑动途中松手会被浏览器补发一次 click → "滑到一半跳一轮"）。竖屏下它只当**引擎 + 预览层**（提供轮次数据、分页、预览卡、正文行的 `data-chat-turn`），可见可拖的轨道由本模块**自绘**：铺满整条消息区、间距照原型自适应（每根至少 11px、最多 39 根）、头尾编号、拖动时显示宿主的轮次号、9→33px 哑铃渐强、75px 滑入 450ms；**手指放到右缘立刻抽出**，按在刻度上即定位，**正文实时跟着走**（选中那一轮对齐到可视顶下方并高亮，松手后再钉 0.4s），**一次手势就能从第 1 轮拖到最后一轮**，松手跳一次（未加载的轮次由宿主先分页） / the host rail is hidden on narrow screens and its ticks are fixed-pitch buttons (a released finger gets a synthetic click, so a drag jumps mid-way). Portrait demotes it to engine + preview layer and draws the rail here: prototype spacing, turn-number readout, dumbbell ticks, instant reveal, **the transcript follows the finger live**, one-gesture seek across the whole session |
 
 ## 安装 / Install
 
@@ -107,7 +108,7 @@ cordis.patch.yml     组合包 patch 层（insert 一行挂进 profile）
 
 ## 注意 / Caveats
 
-- **哈希类名随版本漂移**：CSS 里按 dsh `0.1.7-rc.2` 逐个核对过的哈希类名上游改版即失效，且是**静默失效**（页面正常、效果全无）。升级后跑 `npm run check` 并按 `AGENTS.md` 更新两处常量。 / Hash class names are pinned to dsh `0.1.7-rc.2` and fail *silently* on upstream changes.
+- **哈希类名随版本漂移**：CSS 里按 dsh `0.2.0-rc.2` 逐个核对过的哈希类名上游改版即失效，且是**静默失效**（页面正常、效果全无）。升级后跑 `npm run check` 并按 `AGENTS.md` 更新两处常量。 / Hash class names are pinned to dsh `0.2.0-rc.2` and fail *silently* on upstream changes.
 - **下拉/面板定位已交回宿主**：上游改用 `createPortal` + JS 坐标 + 内联 `style`，本模块不再接管。 / Menu and panel positioning now belongs to the host.
 - **"普通回车=换行"不在此包内**：需改产品包按键映射，留在 `deepseek-harness-android/setup.sh`；本模块只给 `enterkeyhint=newline`。 / Enter-to-newline lives in the other repo.
 - **只对 Web profile 有意义**。 / Only meaningful for the Web profile.

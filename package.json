@@ -1,7 +1,7 @@
 {
   "name": "dsh-android-ui",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 的 Android/移动端界面适配模块：viewport(含 interactive-widget/安全区)、移动端 CSS、启动前 polyfill（AbortSignal.any / crypto.randomUUID）与运行时 DOM 效果（软键盘跟随、触摸气泡、enterkeyhint、下拉吸附）。从 deepseek-harness-android 的 apply-frontend.sh 注入方案改写为官方插件形态。",
+  "description": "DeepSeek Harness 的 Android/移动端界面适配模块：viewport(含 interactive-widget/安全区)、移动端 CSS、启动前 polyfill（AbortSignal.any / crypto.randomUUID）与运行时 DOM 效果（软键盘跟随、触摸气泡、enterkeyhint、下拉吸附、轮次索引轨的手指拖动定位）。从 deepseek-harness-android 的 apply-frontend.sh 注入方案改写为官方插件形态。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -16,6 +16,7 @@
   },
   "files": [
     "lib",
+    "docs",
     "cordis.patch.yml",
     "scripts",
     "README.md"
