@@ -1169,6 +1169,8 @@ check('浏览器半：按 __ModuleLoader__ 协议装载，apply 安装并可完�
   // 780(行内容坐标) - 24 = 756：松手后的锚点换成宿主落位用的那个 24px，
   // 否则我们按 24+p×ratio 写、它按 24 落位，430ms 里会互相拉。
   assert.equal(transcriptStub.scrollTop, 756, '松手后的钉住要用宿主那套 24px 锚点')
+  // settle 里那次漂移纠正**不能**把落点标记重新点亮 —— 否则高亮会赖在那一行不走（真机报障）。
+  assert.equal(rows[1].hasAttribute('data-dsh-rail-target'), false, '松手后的漂移纠正不该重新点亮落点标记')
   // 两段式的第二段：轨道**已经抽出**时，"点一下不拖"= 松手跳到指尖那根刻度。
   // y=180：progress=(180-82)/384≈0.255 → round(0.255×7)=2 → 第 3 轮。
   const clickedBeforeTap = railMarks.reduce((n, m) => n + m.clicked, 0)

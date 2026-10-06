@@ -834,7 +834,7 @@ function installTurnRailScrub(): Disposer {
     if (!box || typeof box.getBoundingClientRect !== 'function' || typeof box.scrollTop !== 'number') return
     const row = rowOf(box, node)
     if (!row || typeof row.getBoundingClientRect !== 'function') return
-    markTarget(row)
+    if (active) markTarget(row)
     /* 这一轮正在加载（宿主 busyTurn，刻度上 aria-busy）时不要写：分页期间它的 preserve()
        会把我们的值精确回滚，写了等于白写还会顺带打断它的锚点。 */
     if (typeof node.getAttribute === 'function' && node.getAttribute('aria-busy') === 'true') return
